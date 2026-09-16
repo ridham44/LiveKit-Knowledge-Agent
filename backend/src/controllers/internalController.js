@@ -24,3 +24,41 @@ exports.voiceChat = async (req, res) => {
     res.status(error.status || 500).json({ error: error.message });
   }
 };
+
+// Same thing, streamed as newline-delimited JSON. The voice agent pipes these deltas
+// straight into text-to-speech, so the assistant starts speaking as soon as the first
+// sentence exists rather than after the whole answer has been generated.
+exports.voiceChatStream = async (req, res) => {
+  const { userId, message, conversationId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required' });
+  }
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  // Tells nginx and similar proxies not to buffer the response, which would defeat
+  // the entire point of streaming it.
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  try {
+    for await (const event of chatService.sendMessageStream({
+      userId,
+      message,
+      conversationId,
+      inputType: 'voice',
+      voice: true,
+    })) {
+      res.write(JSON.stringify(event) + '\n');
+    }
+  } catch (error) {
+    console.error('Internal voice chat stream error:', error);
+    // Headers are already sent, so the failure has to be reported in-band rather
+    // than as an HTTP status - the agent turns this into a spoken fallback.
+    res.write(JSON.stringify({ type: 'error', error: error.message }) + '\n');
+  }
+
+  res.end();
+};

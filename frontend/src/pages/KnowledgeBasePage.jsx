@@ -57,7 +57,7 @@ export default function KnowledgeBasePage() {
       <div className="max-w-3xl mx-auto">
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50 mb-4">Upload Documents</h3>
-          <label className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-8 text-center hover:border-purple-400 dark:hover:border-purple-500 transition cursor-pointer flex flex-col items-center gap-2 bg-white dark:bg-gray-900">
+          <label className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-8 text-center hover:border-blue-400 dark:hover:border-blue-500 transition cursor-pointer flex flex-col items-center gap-2 bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl">
             <FileUp size={28} className="text-gray-400 dark:text-gray-500" />
             <p className="text-gray-600 dark:text-gray-300">Drag files here or click to browse</p>
             <p className="text-sm text-gray-500 dark:text-gray-400">Supported: PDF, DOCX, TXT</p>
@@ -89,7 +89,7 @@ export default function KnowledgeBasePage() {
               {files.map(file => (
                 <div
                   key={file._id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700"
+                  className="flex items-center justify-between p-3 rounded-lg bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60"
                 >
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{file.fileName}</p>

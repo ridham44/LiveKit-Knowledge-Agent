@@ -52,9 +52,12 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [error, setError] = useState('');
+  const [listening, setListening] = useState(false);
 
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const dictationBaseRef = useRef('');
 
   useEffect(() => {
     loadConversations();
@@ -77,6 +80,8 @@ export default function ChatPage() {
   };
 
   const handleNewChat = () => {
+    recognitionRef.current?.stop();
+    setInput('');
     setCurrentConversationId(null);
     setMessages([]);
     setError('');
@@ -127,9 +132,95 @@ export default function ChatPage() {
     }
   };
 
+  // Live dictation into the text input via the browser's built-in speech recognition
+  // (separate from the LiveKit voice agent on the Voice page - this just transcribes
+  // into the text box locally, no server round-trip, so it works even without the
+  // voice agent running).
+  const handleMicClick = () => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('Speech recognition is not supported in this browser. Try Chrome or Edge.');
+      return;
+    }
+
+    setError('');
+    dictationBaseRef.current = input ? `${input} ` : '';
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += transcript;
+        } else {
+          interimText += transcript;
+        }
+      }
+      if (finalText) {
+        dictationBaseRef.current += `${finalText} `;
+      }
+      setInput(dictationBaseRef.current + interimText);
+    };
+
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed') {
+        setError('Microphone permission denied. Please allow microphone access and try again.');
+      } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        setError(`Speech recognition error: ${event.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+      // Without this, a session left running in the background (e.g. the user sent
+      // the message instead of explicitly stopping dictation) keeps accumulating into
+      // this same base, so the next dictation prepends stale, already-sent text.
+      dictationBaseRef.current = '';
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  useEffect(() => {
+    return () => recognitionRef.current?.stop();
+  }, []);
+
+  // Any manual edit to the text box (e.g. backspacing out a misheard word) needs to
+  // become the new base that further speech gets appended to. Without this, editing
+  // the box mid-dictation was invisible to handleMicClick's onresult handler, which
+  // only ever appended onto the last value it itself had written - so a manual edit
+  // got silently overwritten (and the deleted text reappeared) the moment the user
+  // spoke again in the same session.
+  const handleInputChange = (e) => {
+    const value = e.target.value;
+    setInput(value);
+    dictationBaseRef.current = value;
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim() || loading) return;
+
+    // A dictation session left running in the background would otherwise keep
+    // appending newly-spoken words onto its old (pre-send) accumulated text the
+    // next time it fires onresult.
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
 
     const userMessage = {
       id: Date.now(),
@@ -174,12 +265,12 @@ export default function ChatPage() {
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Conversations panel */}
-      <div className="w-80 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
+      <div className="w-80 shrink-0 border-r border-gray-100 dark:border-gray-800/60 flex flex-col bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl">
         <div className="p-4 flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 dark:text-gray-50">Conversations</h3>
           <button
             onClick={handleNewChat}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition"
+            className="brand-gradient flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-sm font-medium transition hover:brightness-95 active:brightness-90"
           >
             <Plus size={16} />
             New Chat
@@ -194,7 +285,7 @@ export default function ChatPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search conversations..."
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
         </div>
@@ -213,12 +304,12 @@ export default function ChatPage() {
                   onClick={() => handleSelectConversation(conv._id)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition border-l-2 ${
                     active
-                      ? 'bg-purple-50 dark:bg-purple-500/15 border-purple-600'
+                      ? 'bg-blue-50 dark:bg-blue-500/15 border-blue-600'
                       : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <p className={`text-sm font-medium truncate ${active ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-gray-100'}`}>
+                    <p className={`text-sm font-medium truncate ${active ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'}`}>
                       {conv.title}
                     </p>
                     <span className="text-xs text-gray-400 shrink-0">{formatTimestamp(conv.updatedAt)}</span>
@@ -246,7 +337,7 @@ export default function ChatPage() {
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center px-8 text-center">
-              <div className="w-20 h-20 rounded-full bg-purple-100 dark:bg-white/90 flex items-center justify-center mb-6">
+              <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-white/90 flex items-center justify-center mb-6">
                 <Logo className="h-11" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-50 mb-1">
@@ -258,9 +349,9 @@ export default function ChatPage() {
                 {FEATURES.map(f => (
                   <div
                     key={f.title}
-                    className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-left"
+                    className="p-4 rounded-xl border border-white/60 dark:border-gray-800/60 bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl shadow-sm text-left"
                   >
-                    <f.icon size={20} className="text-purple-600 dark:text-purple-400 mb-3" />
+                    <f.icon size={20} stroke="url(#icon-gradient)" className="mb-3" />
                     <p className="font-semibold text-sm text-gray-900 dark:text-gray-50 mb-1">{f.title}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{f.description}</p>
                   </div>
@@ -275,7 +366,7 @@ export default function ChatPage() {
                     <div
                       className={`max-w-xl px-4 py-2.5 rounded-2xl text-sm ${
                         msg.role === 'user'
-                          ? 'bg-purple-600 text-white'
+                          ? 'user-bubble text-white'
                           : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
                       }`}
                     >
@@ -296,7 +387,8 @@ export default function ChatPage() {
               ))}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2.5 rounded-2xl text-sm">
+                  <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-4 py-2.5 rounded-2xl text-sm">
+                    <span className="ai-gradient w-1.5 h-1.5 rounded-full animate-pulse" />
                     Thinking...
                   </div>
                 </div>
@@ -326,30 +418,34 @@ export default function ChatPage() {
               type="button"
               onClick={handleAttachClick}
               title="Attach a document to your Knowledge Base"
-              className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition"
+              className="p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60 hover:bg-white/90 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300 transition"
             >
               <Paperclip size={18} />
             </button>
             <input
               type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               placeholder="Ask a question..."
               disabled={loading}
-              className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
+              className="flex-1 px-4 py-2.5 rounded-lg border border-white/60 dark:border-gray-700/60 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             />
             <button
               type="button"
-              disabled
-              title="Use the Voice tab for spoken conversations"
-              className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+              onClick={handleMicClick}
+              title={listening ? 'Stop dictation' : 'Speak your question'}
+              className={`p-2.5 rounded-lg transition ${
+                listening
+                  ? 'bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400 animate-pulse'
+                  : 'bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60 hover:bg-white/90 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300'
+              }`}
             >
               <Mic size={18} />
             </button>
             <button
               type="submit"
               disabled={loading || !input.trim()}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition disabled:opacity-50"
+              className="ai-gradient flex items-center gap-2 px-5 py-2.5 rounded-lg text-white text-sm font-medium transition hover:brightness-95 active:brightness-90 disabled:opacity-50"
             >
               <Send size={16} />
               Send

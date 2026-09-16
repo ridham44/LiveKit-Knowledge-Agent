@@ -1,0 +1,80 @@
+services:
+  - name: knowledgevoice-backend
+    type: web
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    disk:
+      name: uploads
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRE
+        value: 7d
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_CHAT_MODEL
+        value: openai/gpt-4o-mini
+      - key: MAX_FILE_SIZE
+        value: "52428800"
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: AGENT_SHARED_SECRET
+        sync: false
+
+  - name: knowledgevoice-frontend
+    type: web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_LIVEKIT_URL
+        sync: false
+
+  - name: knowledgevoice-voice-agent
+    type: worker
+    runtime: node
+    rootDir: voice-agent
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: DEEPGRAM_TTS_MODEL
+        value: aura-2-luna-en
+      - key: BACKEND_URL
+        sync: false
+      - key: AGENT_SHARED_SECRET
+        sync: false

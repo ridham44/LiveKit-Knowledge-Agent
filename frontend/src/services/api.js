@@ -78,8 +78,8 @@ export const chat = {
 };
 
 export const livekit = {
-  getToken: (conversationId) => apiCall('/api/livekit/token', {
+  getToken: (options = {}) => apiCall('/api/livekit/token', {
     method: 'POST',
-    body: JSON.stringify({ conversationId }),
+    body: JSON.stringify(options),
   }),
 };

@@ -5,9 +5,14 @@ The LiveKit voice worker: **STT (AssemblyAI) → Knowledge Base RAG (via the Nod
 This is a separate Node.js process from `backend/`. It connects directly to your LiveKit Cloud
 project (using `@livekit/agents`) and automatically joins any voice room the frontend creates. It
 does not touch MongoDB or run any AI itself for answers - it forwards each transcribed question to
-the backend's internal API (`POST /api/internal/voice-chat`), which runs the exact same RAG
+the backend's internal API (`POST /api/internal/voice-chat-stream`), which runs the exact same RAG
 pipeline (retrieval + OpenRouter LLM) as the text chat, so voice and text share one Knowledge Base,
 one conversation history, and one set of user-isolation guarantees.
+
+The backend streams the answer back as newline-delimited JSON, and the worker feeds those pieces
+into Deepgram as they arrive. That means speech starts on the first finished sentence instead of
+after the whole answer is generated - the difference between speaking at ~1.5s and sitting silent
+for 15s on a long answer.
 
 ## How a session works
 
@@ -67,3 +72,20 @@ matching project URL) into both `voice-agent/.env` and `backend/.env`.
 **Agent joins but never speaks**
 Check `DEEPGRAM_API_KEY` is valid. Check `ASSEMBLYAI_API_KEY` is valid if it never seems to
 transcribe anything.
+
+**Long delay before the agent joins, then it never hears anything**
+Look for the gap between `received job request` and `job started` in the logs. If it's tens of
+seconds, the worker is spawning a cold process per call. `numIdleProcesses` controls this and
+**defaults to 0 in `dev` mode**, so every call pays full startup: loading the framework, both
+plugins, and the ONNX runner before it can even join the room. This was measured at ~22s to start
+the job and ~50s before AssemblyAI's socket connected - long enough that the caller hangs up first,
+which looks exactly like "the agent never replies" because nothing was ever transcribed.
+
+`agent.js` pins `numIdleProcesses: 1`, keeping one warm process ready. Don't rely on production
+mode for this instead: its default is `min(cpuCount, 4)` prewarmed processes, which starves a
+constrained machine of CPU and reintroduces the lag from the other direction.
+
+**`event loop blocked` / `process not scheduled` warnings**
+CPU contention on the host, not a bug in this code. Session recording is already disabled
+(`record: false` in `session.start`) because it spawns an FFmpeg encoder per call. If the warnings
+persist, close other heavy processes while testing - they delay audio and turn handling directly.

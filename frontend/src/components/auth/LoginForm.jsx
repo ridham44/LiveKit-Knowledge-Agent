@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react';
 import { AlertCircle, Loader2, Mail } from 'lucide-react';
 import { AuthContext } from '../../context/AuthContext';
+import { auth } from '../../services/api';
 import AuthInput from './AuthInput';
 import PasswordInput from './PasswordInput';
 
@@ -32,19 +33,7 @@ export default function LoginForm({ onSwitchPage }) {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setApiError(data.error || 'Login failed');
-        return;
-      }
-
+      const data = await auth.login(email, password);
       login(data.user, data.token, remember);
     } catch (err) {
       setApiError(err.message || 'Something went wrong. Please try again.');
@@ -96,14 +85,14 @@ export default function LoginForm({ onSwitchPage }) {
               type="checkbox"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
-              className="w-4 h-4 rounded accent-purple-600 cursor-pointer"
+              className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
             />
             Remember me
           </label>
           <button
             type="button"
             onClick={() => setShowForgotNotice(true)}
-            className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
+            className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
           >
             Forgot password?
           </button>
@@ -129,7 +118,7 @@ export default function LoginForm({ onSwitchPage }) {
         Don't have an account?{' '}
         <button
           onClick={onSwitchPage}
-          className="font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
+          className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
         >
           Sign up
         </button>

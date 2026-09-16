@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react';
 import { AlertCircle, Building2, Check, Loader2, Mail, User } from 'lucide-react';
 import { AuthContext } from '../../context/AuthContext';
+import { auth } from '../../services/api';
 import AuthInput from './AuthInput';
 import PasswordInput from './PasswordInput';
 import PasswordStrength, { getPasswordChecks } from './PasswordStrength';
@@ -57,25 +58,13 @@ export default function SignupForm({ onSwitchPage }) {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          password: form.password,
-          gender: form.gender,
-          companyName: form.companyName,
-        }),
+      const data = await auth.signup({
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        gender: form.gender,
+        companyName: form.companyName,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setApiError(data.error || 'Signup failed');
-        return;
-      }
-
       login(data.user, data.token);
     } catch (err) {
       setApiError(err.message || 'Something went wrong. Please try again.');
@@ -170,7 +159,7 @@ export default function SignupForm({ onSwitchPage }) {
                 className={`px-3.5 py-2 rounded-lg text-xs font-medium border transition ${
                   form.gender === opt.value
                     ? 'brand-gradient border-transparent text-white'
-                    : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-purple-300 dark:hover:border-purple-700'
+                    : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-blue-300 dark:hover:border-blue-700'
                 }`}
               >
                 {opt.label}
@@ -204,7 +193,7 @@ export default function SignupForm({ onSwitchPage }) {
         Already have an account?{' '}
         <button
           onClick={onSwitchPage}
-          className="font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
+          className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
         >
           Login
         </button>

@@ -1,5 +1,22 @@
 const { AccessToken } = require('livekit-server-sdk');
 
+// Must match the curated voice list the voice-agent actually supports
+// (voice-agent/agent.js). Kept as an allowlist so arbitrary strings can't reach
+// the Deepgram API call.
+const ALLOWED_VOICES = new Set([
+  'aura-2-asteria-en',
+  'aura-2-luna-en',
+  'aura-2-aurora-en',
+  'aura-2-hera-en',
+  'aura-2-orion-en',
+  'aura-2-arcas-en',
+  'aura-2-zeus-en',
+  'aura-2-jupiter-en',
+]);
+
+const MIN_SPEED = 0.7;
+const MAX_SPEED = 1.5;
+
 // Generates a token for the browser to join a voice session, and embeds the
 // authenticated userId (and optional conversationId, to resume a voice session
 // as a continuation of an existing chat) in the participant metadata. The voice
@@ -7,7 +24,7 @@ const { AccessToken } = require('livekit-server-sdk');
 // it never sees the user's JWT.
 exports.generateToken = async (req, res) => {
   try {
-    const { conversationId } = req.body;
+    const { conversationId, voice, speed } = req.body;
 
     const apiKey = process.env.LIVEKIT_API_KEY;
     const apiSecret = process.env.LIVEKIT_API_SECRET;
@@ -19,11 +36,16 @@ exports.generateToken = async (req, res) => {
     const roomName = `voice-${req.user.id}-${Date.now()}`;
     const identity = `user-${req.user.id}`;
 
+    const safeVoice = ALLOWED_VOICES.has(voice) ? voice : undefined;
+    const safeSpeed = Number.isFinite(speed) ? Math.min(MAX_SPEED, Math.max(MIN_SPEED, speed)) : undefined;
+
     const at = new AccessToken(apiKey, apiSecret, {
       identity,
       metadata: JSON.stringify({
         userId: req.user.id,
         conversationId: conversationId || null,
+        voice: safeVoice,
+        speed: safeSpeed,
       }),
     });
 

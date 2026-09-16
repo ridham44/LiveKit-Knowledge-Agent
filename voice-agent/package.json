@@ -4,6 +4,9 @@
   "type": "module",
   "description": "LiveKit voice agent: STT (AssemblyAI) -> Knowledge Base RAG (via backend API) -> TTS (Deepgram Aura)",
   "main": "agent.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "node agent.js dev",
     "start": "node agent.js start"

@@ -19,7 +19,7 @@ export default function PasswordInput({ id, label, error, className = '', ...pro
           className={`w-full pl-11 pr-11 py-3 rounded-xl border bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 text-sm transition focus:outline-none focus:ring-4 ${
             error
               ? 'border-red-400 focus:border-red-500 focus:ring-red-500/10'
-              : 'border-gray-200 dark:border-gray-700 focus:border-purple-500 focus:ring-purple-500/10'
+              : 'border-gray-200 dark:border-gray-700 focus:border-blue-500 focus:ring-blue-500/10'
           }`}
           {...props}
         />
