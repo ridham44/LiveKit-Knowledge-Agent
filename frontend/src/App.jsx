@@ -11,8 +11,8 @@ function App() {
   const [currentPage, setCurrentPage] = useState('login');
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const savedUser = localStorage.getItem('user') || sessionStorage.getItem('user');
 
     if (token && savedUser) {
       setUser(JSON.parse(savedUser));
@@ -20,16 +20,19 @@ function App() {
     setLoading(false);
   }, []);
 
-  const login = (userData, token) => {
+  const login = (userData, token, remember = true) => {
     setUser(userData);
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
+    const storage = remember ? localStorage : sessionStorage;
+    storage.setItem('token', token);
+    storage.setItem('user', JSON.stringify(userData));
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
     setCurrentPage('login');
   };
 
@@ -47,13 +50,11 @@ function App() {
   return (
     <AuthContext.Provider value={{ user, login, logout }}>
       {!user ? (
-        <div>
-          {currentPage === 'signup' ? (
-            <Signup onSwitchPage={() => setCurrentPage('login')} />
-          ) : (
-            <Login onSwitchPage={() => setCurrentPage('signup')} />
-          )}
-        </div>
+        currentPage === 'signup' ? (
+          <Signup onSwitchPage={() => setCurrentPage('login')} />
+        ) : (
+          <Login onSwitchPage={() => setCurrentPage('signup')} />
+        )
       ) : (
         <Dashboard onLogout={logout} />
       )}

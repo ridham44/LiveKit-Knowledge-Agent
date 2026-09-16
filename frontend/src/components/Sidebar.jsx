@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react';
-import { AudioLines, ChevronDown, FileText, LogOut, MessageSquare, Mic } from 'lucide-react';
+import { ChevronDown, FileText, LogOut, MessageSquare, Mic } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
+import Logo from './Logo';
 
 const NAV_ITEMS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
@@ -24,12 +25,12 @@ export default function Sidebar({ currentPage, onNavigate, onLogout }) {
 
   return (
     <aside className="w-64 shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col">
-      <div className="p-6 flex items-center gap-2">
-        <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-          <AudioLines size={20} />
+      <div className="p-6 flex items-center gap-2.5">
+        <div className="rounded-xl bg-purple-50 dark:bg-white/90 p-1.5 flex items-center justify-center">
+          <Logo className="h-8" />
         </div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50">
-          Knowledge<span className="text-purple-600 dark:text-purple-400">Voice</span>
+          Knowledge<span className="brand-gradient-text">Voice</span>
         </h1>
       </div>
 
@@ -47,7 +48,7 @@ export default function Sidebar({ currentPage, onNavigate, onLogout }) {
                   : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800'
               }`}
             >
-              <Icon size={18} />
+              <Icon size={18} stroke={active ? 'url(#icon-gradient)' : 'currentColor'} />
               <span className="text-sm font-medium">{item.label}</span>
             </button>
           );

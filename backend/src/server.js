@@ -32,6 +32,7 @@ const userRoutes = require('./routes/users');
 const fileRoutes = require('./routes/files');
 const chatRoutes = require('./routes/chat');
 const livekitRoutes = require('./routes/livekit');
+const internalRoutes = require('./routes/internal');
 
 // Routes
 app.get('/api/health', (req, res) => {
@@ -43,6 +44,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/livekit', livekitRoutes);
+app.use('/api/internal', internalRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

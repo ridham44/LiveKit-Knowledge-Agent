@@ -331,12 +331,15 @@ Delete conversation and all associated messages.
 ## LiveKit Endpoints
 
 ### POST /api/livekit/token
-Generate JWT token for LiveKit room access. Requires authentication.
+Generate a LiveKit room token for the browser to start a voice session. Requires authentication.
+The backend generates a unique room name server-side and embeds the authenticated `userId` (plus
+`conversationId` if given, to resume that conversation over voice) in the participant's metadata -
+this is how the voice agent worker learns whose Knowledge Base to query, without ever seeing a JWT.
 
 **Request:**
 ```json
 {
-  "roomName": "user-voice-room"
+  "conversationId": "optional - resume an existing text/voice conversation"
 }
 ```
 
@@ -344,9 +347,33 @@ Generate JWT token for LiveKit room access. Requires authentication.
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "url": "ws://localhost:7880"
+  "url": "wss://your-project.livekit.cloud",
+  "roomName": "voice-<userId>-<timestamp>"
 }
 ```
+
+---
+
+## Internal Endpoints
+
+Not called by the frontend. Used only by the `voice-agent` worker process to reach the same RAG
+pipeline the text chat uses, authenticated with a shared secret instead of a user JWT (the agent
+process has no user session).
+
+### POST /api/internal/voice-chat
+**Header:** `X-Internal-Secret: <AGENT_SHARED_SECRET>`
+
+**Request:**
+```json
+{
+  "userId": "507f1f77bcf86cd799439010",
+  "message": "What is the refund policy?",
+  "conversationId": "optional - continues that conversation"
+}
+```
+
+Same response shape as `POST /api/chat`, except messages are saved with `inputType: "voice"`.
+Returns `403` if the secret header is missing or wrong.
 
 ---
 

@@ -1,0 +1,17 @@
+{
+  "name": "voice-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "LiveKit voice agent: STT (AssemblyAI) -> Knowledge Base RAG (via backend API) -> TTS (Deepgram Aura)",
+  "main": "agent.js",
+  "scripts": {
+    "dev": "node agent.js dev",
+    "start": "node agent.js start"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.9.0",
+    "@livekit/agents-plugin-assemblyai": "^1.9.0",
+    "@livekit/agents-plugin-deepgram": "^1.9.0",
+    "dotenv": "^17.4.2"
+  }
+}

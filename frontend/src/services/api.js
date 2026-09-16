@@ -1,7 +1,11 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+function getToken() {
+  return localStorage.getItem('token') || sessionStorage.getItem('token');
+}
+
 export async function apiCall(endpoint, options = {}) {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -42,7 +46,7 @@ export const files = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const token = localStorage.getItem('token');
+    const token = getToken();
     const headers = {};
     if (token) {
       headers.Authorization = `Bearer ${token}`;
@@ -74,8 +78,8 @@ export const chat = {
 };
 
 export const livekit = {
-  getToken: (roomName) => apiCall('/api/livekit/token', {
+  getToken: (conversationId) => apiCall('/api/livekit/token', {
     method: 'POST',
-    body: JSON.stringify({ roomName }),
+    body: JSON.stringify({ conversationId }),
   }),
 };

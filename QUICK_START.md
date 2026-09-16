@@ -50,6 +50,14 @@ VITE v8.3.0  ready in XXX ms
 ➜  Local:   http://localhost:5173/
 ```
 
+### Terminal 3 — Voice Agent (only needed to test voice, not text chat)
+```powershell
+cd voice-agent
+npm install       # first time only
+cp .env.example .env   # then fill in LiveKit + AssemblyAI + Deepgram keys, see voice-agent/README.md
+npm run dev
+```
+
 ### Open the App
 Go to **http://localhost:5173**
 
@@ -63,6 +71,10 @@ Go to **http://localhost:5173**
 4. Go to **Chat** and ask a question about the content of the file you uploaded.
 5. The AI answers using only your uploaded document and lists it under **Sources**.
 6. Ask a follow-up question — it's the same conversation, so context carries over.
+7. Go to **Voice** (with the voice agent running from Terminal 3) and click the microphone. Allow
+   mic access when prompted. Ask the same kind of question out loud - the agent transcribes it,
+   queries the same Knowledge Base, and speaks the answer back. The exchange also appears in
+   **Chat**'s conversation history afterward.
 
 ## Testing the API Directly (optional)
 
@@ -110,6 +122,12 @@ Re-run the exact same command in **PowerShell** instead of Git Bash — this is 
 
 ### Chat returns "LLM request failed: 401 Unauthorized"
 `OPENROUTER_API_KEY` is missing or invalid in `backend/.env`. Get a key at https://openrouter.ai/keys.
+
+### Voice agent logs "Unexpected server response: 401" repeatedly and never connects
+The worker's `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` don't match `LIVEKIT_URL` - a LiveKit Cloud
+project/key mismatch, not a code bug. Go to your LiveKit Cloud project's Settings → Keys and copy a
+fresh key/secret pair into **both** `backend/.env` and `voice-agent/.env` (they must reference the
+exact same project). See `voice-agent/README.md` for more voice-specific troubleshooting.
 
 ### File stuck on "processing" or shows "failed"
 Check the backend terminal for the error. Most common causes: unreadable/corrupt file, or the embedding model still downloading on first run (wait a bit longer before assuming failure).

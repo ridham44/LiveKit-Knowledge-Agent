@@ -1,5 +1,6 @@
 const { retrieveRelevantChunks } = require('./retrievalService');
 const { generateResponse } = require('../ai/aiProvider');
+const { analyzeGreeting, buildGreetingReply, buildGreetingPrefix } = require('./greetingService');
 
 const SYSTEM_PROMPT = `You are a Knowledge Base Assistant. Your role is to answer questions based on the provided Knowledge Base context.
 
@@ -13,12 +14,30 @@ Important guidelines:
 
 async function answerQuestion(userId, question) {
   try {
+    const greeting = analyzeGreeting(question);
+
+    // Pure greeting/small talk ("Hi", "Good morning", "How are you?") - respond
+    // conversationally without touching the Knowledge Base at all.
+    if (greeting.isPureGreeting) {
+      return {
+        answer: buildGreetingReply(greeting),
+        sources: [],
+        usage: null,
+      };
+    }
+
+    // A greeting attached to a real question ("Hi, good morning, what's our refund
+    // policy?") still runs full RAG below - only the final answer gets a short
+    // acknowledgment prefixed onto it.
+    const greetingPrefix = greeting.isGreeting ? buildGreetingPrefix(greeting) : null;
+
     // Retrieve relevant chunks from knowledge base
     const relevantChunks = await retrieveRelevantChunks(userId, question, 5);
 
     if (relevantChunks.length === 0) {
+      const notFound = "I couldn't find any relevant information in your Knowledge Base to answer this question. Please upload documents that might contain the answer.";
       return {
-        answer: "I couldn't find any relevant information in your Knowledge Base to answer this question. Please upload documents that might contain the answer.",
+        answer: greetingPrefix ? `${greetingPrefix} ${notFound}` : notFound,
         sources: [],
         usage: null,
       };
@@ -51,7 +70,7 @@ async function answerQuestion(userId, question) {
     }));
 
     return {
-      answer: result.content,
+      answer: greetingPrefix ? `${greetingPrefix} ${result.content}` : result.content,
       sources,
       usage: result.usage,
     };

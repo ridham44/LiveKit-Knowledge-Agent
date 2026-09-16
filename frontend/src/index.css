@@ -8,6 +8,18 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --brand-gradient: linear-gradient(135deg, #9370db 0%, #dcdcdc 50%, #dda0dd 100%);
+}
+
+.brand-gradient {
+  background-image: var(--brand-gradient);
+}
+
+.brand-gradient-text {
+  background-image: var(--brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 body {

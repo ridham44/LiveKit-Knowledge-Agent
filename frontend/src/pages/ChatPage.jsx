@@ -1,6 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import {
-  AudioLines,
   CornerDownLeft,
   FileText,
   Mic,
@@ -12,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
+import Logo from '../components/Logo';
 import * as api from '../services/api';
 
 const FEATURES = [
@@ -246,8 +246,8 @@ export default function ChatPage() {
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center px-8 text-center">
-              <div className="w-20 h-20 rounded-full bg-purple-100 dark:bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-6">
-                <AudioLines size={32} />
+              <div className="w-20 h-20 rounded-full bg-purple-100 dark:bg-white/90 flex items-center justify-center mb-6">
+                <Logo className="h-11" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-50 mb-1">
                 Hello {user?.name?.split(' ')[0]}!
