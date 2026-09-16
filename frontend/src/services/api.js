@@ -70,11 +70,97 @@ export const chat = {
     method: 'POST',
     body: JSON.stringify({ message, conversationId }),
   }),
+  // Streams the answer as newline-delimited JSON events. onDelta is called with each
+  // piece of text as it is generated, so the voice page can start speaking the first
+  // sentence while the rest is still being written. Resolves with the final metadata.
+  sendStream: async (message, conversationId, onDelta, signal) => {
+    const token = getToken();
+    const response = await fetch(`${API_URL}/api/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ message, conversationId }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Chat request failed');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result = {};
+
+    const handleLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      let event;
+      try {
+        event = JSON.parse(trimmed);
+      } catch {
+        return;
+      }
+
+      if (event.type === 'delta' && event.text) {
+        onDelta(event.text);
+      } else if (event.type === 'done') {
+        result = event;
+      } else if (event.type === 'error') {
+        throw new Error(event.error || 'Chat stream failed');
+      }
+    };
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        handleLine(line);
+      }
+    }
+    handleLine(buffer);
+
+    return result;
+  },
   listConversations: () => apiCall('/api/chat/conversations'),
   getConversation: (conversationId) => apiCall(`/api/chat/conversations/${conversationId}`),
   deleteConversation: (conversationId) => apiCall(`/api/chat/conversations/${conversationId}`, {
     method: 'DELETE',
   }),
+};
+
+export const tts = {
+  // Returns an object URL for the synthesized audio. Goes through the backend so the
+  // Deepgram key stays server-side. Caller is responsible for revoking the URL.
+  speak: async (text, voice, speed, signal) => {
+    const token = getToken();
+    const response = await fetch(`${API_URL}/api/tts/speak`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ text, voice, speed }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Speech synthesis failed');
+    }
+
+    return URL.createObjectURL(await response.blob());
+  },
 };
 
 export const livekit = {

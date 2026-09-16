@@ -5,6 +5,7 @@ const chatController = require('../controllers/chatController');
 const router = express.Router();
 
 router.post('/', authenticateToken, chatController.chat);
+router.post('/stream', authenticateToken, chatController.chatStream);
 router.get('/conversations', authenticateToken, chatController.listConversations);
 router.get('/conversations/:id', authenticateToken, chatController.getConversation);
 router.delete('/conversations/:id', authenticateToken, chatController.deleteConversation);

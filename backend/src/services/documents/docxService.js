@@ -42,9 +42,12 @@ function extractParagraphText(para) {
     for (const run of para['w:r']) {
       if (run['w:t']) {
         for (const t of run['w:t']) {
-          if (t._) {
-            text += t._;
-          }
+          // xml2js only wraps a node's text in `{ _: ... }` when it also has XML
+          // attributes (e.g. xml:space="preserve"). A <w:t> with no attributes -
+          // common for ordinary runs with no leading/trailing whitespace to
+          // preserve - parses to a plain string instead, which `t._` would silently
+          // skip entirely.
+          text += typeof t === 'string' ? t : (t._ || '');
         }
       }
     }

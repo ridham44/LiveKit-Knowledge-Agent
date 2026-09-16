@@ -85,6 +85,25 @@ which looks exactly like "the agent never replies" because nothing was ever tran
 mode for this instead: its default is `min(cpuCount, 4)` prewarmed processes, which starves a
 constrained machine of CPU and reintroduces the lag from the other direction.
 
+**Worker registers fine, but every call logs `supervised process run failed` in a tight loop**
+The worker process and the per-call job process are different processes, and only the job process
+loads LiveKit's native WebRTC binding. If that binding is missing, the worker still connects and
+accepts calls while every job crashes instantly, so from the browser it looks like the agent simply
+never joins. Search the log for `Cannot find native binding`.
+
+The cause is npm's optional-dependency bug (npm/cli#4828): an interrupted install can leave the
+platform package extracted under its temporary staging name, e.g. a `node_modules/@livekit/`
+directory literally named `.rtc-ffi-bindings-win32-x64-msvc-<random>`, holding the `.node` binary
+but no `package.json`. Node can't resolve that, so the require fails. Reinstall the platform
+package explicitly, from PowerShell rather than Git Bash:
+
+```powershell
+npm install "@livekit/rtc-ffi-bindings-win32-x64-msvc@<version>" --no-save
+```
+
+Match `<version>` to `node_modules/@livekit/rtc-ffi-bindings/package.json`, and swap the package
+name for your own platform. Verify with `node -e "require('@livekit/rtc-node')"` before restarting.
+
 **`event loop blocked` / `process not scheduled` warnings**
 CPU contention on the host, not a bug in this code. Session recording is already disabled
 (`record: false` in `session.start`) because it spawns an FFmpeg encoder per call. If the warnings

@@ -7,10 +7,13 @@ const fileController = require('../controllers/fileController');
 
 const router = express.Router();
 
-// Configurable so production can point this at a mounted persistent disk
-// (e.g. Render: UPLOAD_DIR=/var/data/uploads) instead of the app's own ephemeral
-// filesystem. Relative paths (the local-dev default) resolve against the backend
-// project root; absolute paths are used as-is.
+// Purely a temporary staging spot for the duration of one upload request - the file
+// written here is deleted by processDocument (see services/documents/processingService.js)
+// as soon as its text has been extracted into MongoDB, which is the actual persistent
+// store. That means this can safely be the app's own ephemeral filesystem in production
+// (no Persistent Disk needed); UPLOAD_DIR just exists so local dev/tests can point it
+// elsewhere if useful. Relative paths resolve against the backend project root; absolute
+// paths are used as-is.
 const UPLOAD_DIR = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
   : path.join(__dirname, '../../uploads');

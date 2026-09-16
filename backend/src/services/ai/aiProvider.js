@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { keepAliveAgent } = require('../httpAgent');
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const CHAT_MODEL = process.env.OPENROUTER_CHAT_MODEL || 'openai/gpt-4o-mini';
@@ -36,7 +37,7 @@ async function generateResponse(messages, systemPrompt = null, temperature = 0.7
   const { body, headers } = buildRequest(messages, systemPrompt, temperature, maxTokens, false);
 
   try {
-    const response = await axios.post(OPENROUTER_URL, body, { headers });
+    const response = await axios.post(OPENROUTER_URL, body, { headers, httpsAgent: keepAliveAgent });
 
     return {
       content: response.data.choices[0].message.content,
@@ -65,7 +66,11 @@ async function* generateResponseStream(
 
   let response;
   try {
-    response = await axios.post(OPENROUTER_URL, body, { headers, responseType: 'stream' });
+    response = await axios.post(OPENROUTER_URL, body, {
+      headers,
+      responseType: 'stream',
+      httpsAgent: keepAliveAgent,
+    });
   } catch (error) {
     // With responseType 'stream' the error body is itself a stream, so the usual
     // error.response.data.error.message isn't available without draining it first.

@@ -8,7 +8,7 @@ A full-stack app for uploading documents and asking questions about them — ove
 - **Knowledge Base** — upload PDF/DOCX/TXT documents; automatic text extraction, cleaning, chunking, and embedding
 - **RAG chat** — ask questions in natural language and get answers grounded in your own documents, with cited sources
 - **Conversation history** — searchable list of past conversations, resume any of them, delete one or all
-- **Voice chat** — talk to the assistant live over LiveKit: speech-to-text, RAG, and spoken responses, with a live transcript and a settings panel for assistant voice / speaking speed / volume
+- **Voice chat** — speak your question, watch it appear as text as you talk, and hear the answer spoken back, with a live transcript and a settings panel for assistant voice / speaking speed / volume
 - **Voice dictation in text chat** — dictate a chat message with the browser's speech recognition instead of typing
 - **Light/dark theme**, gradient brand accents, and a glassmorphism UI, fully responsive on the auth screens
 - **Multi-tenant isolation** — every query, file, and conversation is scoped to its owner
@@ -35,6 +35,12 @@ This is **three separate processes**, not two:
 - **`voice-agent/`** — a standalone, always-running Node worker (`@livekit/agents`) that LiveKit automatically dispatches into any voice room the frontend creates. It transcribes the user (AssemblyAI), forwards the question to the backend's internal API (so voice and text share the exact same RAG pipeline, conversation history, and user isolation), and speaks the answer back (Deepgram Aura).
 
 The voice agent is a long-running worker, not a request/response server — it needs an "always-on" host (a VM, container, or a platform's background-worker service type), the same as the backend. It can't run on a serverless/functions platform.
+
+**Storage:** MongoDB is the persistent source of truth for everything in the Knowledge Base — extracted text, chunks, and embeddings all live there. An uploaded PDF/DOCX/TXT file itself only ever touches the backend's local disk for the few seconds it takes to extract its text (`processDocument`), then gets deleted; nothing reads it again after that. That means the backend needs **no persistent volume/disk** in production — a plain ephemeral filesystem is fine, since nothing is ever expected to survive a restart there. There's currently no "download the original file" feature, so nothing depends on that file existing either.
+
+## Deployment
+
+See [`render.md`](render.md) for a full step-by-step Render deployment guide, and `render.yaml` for the declarative version. Short version: `frontend` and `backend` run entirely on Render's Free plan. `voice-agent` cannot — Render doesn't offer Background Worker services on Free at any size, so that piece specifically requires a paid plan (or another host that supports a long-running Node process) if you want live voice calls. Everything else works fully without it.
 
 ## Tech stack
 
@@ -105,10 +111,12 @@ JWT_EXPIRE=7d
 OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_CHAT_MODEL=openai/gpt-4o-mini
 MAX_FILE_SIZE=52428800
-UPLOAD_DIR=./uploads
+UPLOAD_DIR=./uploads   # optional — local-dev only, defaults to this if unset. Not needed in
+                        # production; see the Storage note above.
 LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...
+DEEPGRAM_API_KEY=...
 FRONTEND_URL=http://localhost:5173
 AGENT_SHARED_SECRET=<random string — must match voice-agent/.env>
 ```
@@ -148,6 +156,8 @@ All routes except signup/login require `Authorization: Bearer <jwt>`.
 | POST | `/api/chat` | Send a chat message, get a RAG answer with sources |
 | GET | `/api/chat/conversations` | List your conversations |
 | GET / DELETE | `/api/chat/conversations/:id` | Get / delete a conversation |
+| POST | `/api/chat/stream` | Same as `/api/chat`, streamed as newline-delimited JSON so the Voice page can speak the first sentence while the rest is still being written |
+| POST | `/api/tts/speak` | Synthesize a chunk of the assistant's answer (Deepgram Aura), so the key stays server-side |
 | POST | `/api/livekit/token` | Get a token + room name to join a voice session |
 | POST | `/api/internal/voice-chat` | **Internal only** (shared-secret auth) — the voice agent's entry point into the same RAG pipeline |
 | POST | `/api/internal/voice-chat-stream` | **Internal only** — same, streamed as newline-delimited JSON so speech can start on the first sentence |

@@ -1,3 +1,4 @@
+const fs = require('fs').promises;
 const File = require('../../models/File');
 const DocumentChunk = require('../../models/DocumentChunk');
 const { extractTextFromPDF } = require('./pdfService');
@@ -6,6 +7,23 @@ const { extractTextFromTXT } = require('./txtService');
 const { normalizeText } = require('./textCleaningService');
 const { chunkText } = require('./chunkingService');
 const { generateEmbeddings } = require('../ai/embeddingService');
+
+// The uploaded file on disk is only ever needed for this one extraction pass - once
+// its text is in MongoDB (below), nothing else reads it again. Deleting it here (rather
+// than leaving it on disk until the user explicitly deletes the File record) means the
+// app never depends on Render's ephemeral filesystem surviving between requests: on a
+// host with no persistent disk, the file would vanish on the next restart/redeploy
+// anyway, so there's no reason to pretend it's still there in the meantime.
+async function cleanupTempFile(filePath) {
+  if (!filePath) return;
+  try {
+    await fs.unlink(filePath);
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error('Failed to clean up temp upload:', err.message);
+    }
+  }
+}
 
 async function processDocument(fileId) {
   let file;
@@ -75,6 +93,10 @@ async function processDocument(fileId) {
       file.errorMessage = error.message;
       file.updatedAt = new Date();
       await file.save();
+    }
+  } finally {
+    if (file) {
+      await cleanupTempFile(file.filePath);
     }
   }
 }

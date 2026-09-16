@@ -1,20 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
-import { Room, RoomEvent, Track } from 'livekit-client';
 import { Mic, PhoneOff, AlertCircle, Settings, X, Check, ChevronDown, Gauge, Volume2 } from 'lucide-react';
 import * as api from '../services/api';
 
 const STATUS_LABEL = {
   idle: 'Click to talk',
-  connecting: 'Connecting...',
   listening: 'Listening...',
   thinking: 'Thinking...',
   speaking: 'Speaking...',
   error: 'Something went wrong',
 };
 
-// Must match the ALLOWED_VOICES allowlist in backend/src/controllers/livekitController.js
+// Speaks through the browser's own speech engine instead of Deepgram. It sounds more
+// synthetic, but it starts talking immediately: Deepgram is a network round trip that
+// returns the finished audio file, which measured 1.3-2.5s from this region and lands
+// entirely between the text appearing and the voice starting.
+const BROWSER_VOICE = 'browser';
+
+// Must match the ALLOWED_VOICES allowlist in backend/src/controllers/ttsController.js
 // (gender/style descriptions verified against Deepgram's Aura-2 voice docs).
 const VOICES = [
+  { id: BROWSER_VOICE, label: 'System voice', gender: 'Device', style: 'Instant, no network wait' },
   { id: 'aura-2-luna-en', label: 'Luna', gender: 'Female', style: 'Friendly, natural' },
   { id: 'aura-2-asteria-en', label: 'Asteria', gender: 'Female', style: 'Confident, energetic' },
   { id: 'aura-2-aurora-en', label: 'Aurora', gender: 'Female', style: 'Cheerful, expressive' },
@@ -41,22 +46,101 @@ function loadSettings() {
   }
 }
 
+// Shortest chunk worth sending to speech synthesis on its own. Below this, the clause
+// break is likelier to be an abbreviation or a list item than a natural pause.
+const MIN_FIRST_CHUNK = 30;
+
+// Pulls speakable chunks off the front of the buffer so each can be synthesized the
+// moment it's ready, instead of waiting for the whole answer. The trailing fragment
+// stays in the buffer until more text arrives to complete it.
+//
+// The very first chunk of an answer also breaks on a clause boundary (comma, colon,
+// semicolon), because that chunk is the only one the listener actually waits on - the
+// rest are synthesized while earlier audio is still playing. Later chunks hold out for
+// a full sentence, which reads more naturally.
+function extractSpeakable(buffer, allowClauseBreak) {
+  const chunks = [];
+  let consumed = 0;
+
+  // A period only ends a sentence when whitespace follows it and the next visible
+  // character starts a new sentence. Requiring that whitespace is what keeps
+  // "ridham@gmail.com" and "a CGPA of 7.98" intact - both contain periods with no
+  // space after them, and both are exactly the kind of answer this app returns most.
+  // A trailing period at the end of the buffer is deliberately NOT a boundary: mid
+  // stream we may simply not have received the rest of the address yet. The caller
+  // flushes whatever remains once the stream finishes.
+  const sentenceEnd = /[.!?]["')\]]?\s+(?=[A-Z"'(\[])/g;
+  let match;
+
+  while ((match = sentenceEnd.exec(buffer)) !== null) {
+    const sentence = buffer.slice(consumed, match.index + match[0].length).trim();
+    if (sentence) chunks.push(sentence);
+    consumed = match.index + match[0].length;
+  }
+
+  let rest = buffer.slice(consumed);
+
+  // Same reasoning for clause breaks: require whitespace after the punctuation so
+  // numbers like "7,000" and time stamps like "10:30" don't get chopped in half.
+  if (allowClauseBreak && chunks.length === 0) {
+    const clause = rest.search(/[,;:]\s/);
+    if (clause >= MIN_FIRST_CHUNK) {
+      chunks.push(rest.slice(0, clause + 1).trim());
+      rest = rest.slice(clause + 1);
+    }
+  }
+
+  return { chunks, rest };
+}
+
+// Groups the flat entry list into question/answer turns. The Voice page shows the
+// newest turn first so the current exchange is under the mic instead of scrolled off
+// the bottom, but a question still has to sit above its own answer - so the reversal
+// happens at turn level, not entry level.
+function groupIntoTurns(entries) {
+  const turns = [];
+
+  for (const entry of entries) {
+    if (entry.role === 'user' || turns.length === 0) {
+      turns.push([entry]);
+    } else {
+      turns[turns.length - 1].push(entry);
+    }
+  }
+
+  return turns;
+}
+
 export default function VoicePage() {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
+  const [liveText, setLiveText] = useState('');
   const [transcript, setTranscript] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(loadSettings);
 
-  const roomRef = useRef(null);
-  const awaitingResponseRef = useRef(false);
-  const audioElsRef = useRef(new Map());
+  const recognitionRef = useRef(null);
+  const audioRef = useRef(null);
+  const conversationIdRef = useRef(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
+  // True from clicking the mic until clicking end-call. Speech recognition stops on
+  // its own regularly (silence timeouts, engine restarts), so this is what decides
+  // whether an `onend` should quietly restart it or genuinely finish the session.
+  const sessionActiveRef = useRef(false);
+  // True while the assistant is talking, so the microphone doesn't transcribe the
+  // assistant's own voice coming back through the speakers.
+  const suspendedRef = useRef(false);
+  const abortRef = useRef(null);
+  // Ordered list of in-flight synthesis promises. Synthesis runs in parallel so later
+  // sentences are ready early, but playback walks the list in order.
+  const playQueueRef = useRef([]);
+  const playingRef = useRef(false);
+
   useEffect(() => {
     return () => {
-      disconnect();
+      endSession();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -68,162 +152,299 @@ export default function VoicePage() {
       return next;
     });
 
-    if (key === 'volume') {
-      for (const el of audioElsRef.current.values()) {
-        el.volume = value;
-      }
+    if (key === 'volume' && audioRef.current) {
+      audioRef.current.volume = value;
     }
   }
 
-  function upsertSegment(segmentId, role, text, final) {
-    setTranscript((prev) => {
-      const idx = prev.findIndex((e) => e.segmentId === segmentId);
-      const entry = { segmentId, role, text, final };
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = entry;
-        return copy;
-      }
-      return [...prev, entry];
-    });
+  function appendEntry(role, text) {
+    const id = `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setTranscript((prev) => [...prev, { id, role, text }]);
+    return id;
   }
 
-  function attachRoomListeners(room) {
-    room.on(RoomEvent.Disconnected, () => {
-      setStatus('idle');
-      roomRef.current = null;
-    });
+  function appendToEntry(id, text) {
+    setTranscript((prev) => prev.map((e) => (e.id === id ? { ...e, text: e.text + text } : e)));
+  }
 
-    room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      if (track.kind === Track.Kind.Audio && participant.identity !== room.localParticipant.identity) {
-        const el = track.attach();
-        el.volume = settingsRef.current.volume;
-        el.style.display = 'none';
-        document.body.appendChild(el);
-        audioElsRef.current.set(track.sid, el);
-      }
-    });
+  // ---- speech synthesis playback -------------------------------------------------
 
-    // Browsers can refuse to auto-play the agent's audio if they decide the user
-    // gesture that started the call has expired. That fails silently and is
-    // indistinguishable from "the agent never answered", so surface it instead.
-    room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
-      if (!room.canPlaybackAudio) {
-        setError('Your browser blocked audio playback. Click anywhere on the page to enable sound.');
-      } else {
-        setError((prev) => (prev.startsWith('Your browser blocked audio') ? '' : prev));
-      }
-    });
+  function enqueueSpeech(text) {
+    if (!text.trim()) return;
 
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      const el = audioElsRef.current.get(track.sid);
-      if (el) {
-        track.detach(el);
-        el.remove();
-        audioElsRef.current.delete(track.sid);
-      }
-    });
+    if (settingsRef.current.voice === BROWSER_VOICE) {
+      playQueueRef.current.push({ kind: 'browser', text });
+    } else {
+      // Kick synthesis off immediately so later sentences are ready early; the player
+      // still walks the queue in order.
+      const promise = api.tts
+        .speak(text, settingsRef.current.voice, settingsRef.current.speed)
+        .catch((err) => {
+          console.error('Speech synthesis failed:', err);
+          return null;
+        });
+      playQueueRef.current.push({ kind: 'remote', promise });
+    }
 
-    // @livekit/agents publishes transcripts as text streams on topic "lk.transcription"
-    // (not the legacy RoomEvent.TranscriptionReceived). senderIdentity on the stream
-    // correctly attributes text to whichever party is speaking, even though the agent
-    // process is physically the one sending both its own and the user's transcript.
-    room.registerTextStreamHandler('lk.transcription', async (reader, participantInfo) => {
-      const text = await reader.readAll();
-      const attrs = reader.info.attributes || {};
-      const isFinal = attrs['lk.transcription_final'] === 'true';
-      const segmentId = attrs['lk.segment_id'] || reader.info.id;
-      const isLocal = participantInfo.identity === room.localParticipant.identity;
-      const role = isLocal ? 'user' : 'agent';
+    drainQueue();
+  }
 
-      upsertSegment(segmentId, role, text, isFinal);
-
-      if (isFinal && role === 'user') {
-        awaitingResponseRef.current = true;
-        setStatus('thinking');
-      } else if (isFinal && role === 'agent') {
-        awaitingResponseRef.current = false;
-      }
-    });
-
-    room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-      const localSpeaking = speakers.some((p) => p.identity === room.localParticipant.identity);
-      const agentSpeaking = speakers.some((p) => p.identity !== room.localParticipant.identity);
-
-      if (agentSpeaking) {
-        awaitingResponseRef.current = false;
-        setStatus('speaking');
-      } else if (awaitingResponseRef.current) {
-        // Your turn already ended and we're waiting on the agent's reply - a stray
-        // mic pickup (breath, background noise) briefly registering as "you're
-        // speaking again" shouldn't flip the status back to Listening and hide
-        // that it's actually processing.
+  function speakWithBrowser(text) {
+    return new Promise((resolve) => {
+      if (!window.speechSynthesis) {
+        resolve();
         return;
-      } else if (localSpeaking) {
-        setStatus('listening');
-      } else {
-        setStatus('listening');
       }
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = settingsRef.current.speed;
+      utterance.volume = settingsRef.current.volume;
+      utterance.lang = 'en-US';
+
+      const preferred = window.speechSynthesis
+        .getVoices()
+        .find((v) => v.lang && v.lang.startsWith('en'));
+      if (preferred) utterance.voice = preferred;
+
+      utterance.onend = resolve;
+      utterance.onerror = () => resolve();
+      window.speechSynthesis.speak(utterance);
     });
   }
 
-  async function connect() {
-    setError('');
-    setStatus('connecting');
+  async function drainQueue() {
+    if (playingRef.current) return;
+    playingRef.current = true;
 
     try {
-      const { token, url } = await api.livekit.getToken({
-        voice: settings.voice,
-        speed: settings.speed,
+      while (playQueueRef.current.length > 0) {
+        const item = playQueueRef.current.shift();
+
+        if (item.kind === 'browser') {
+          if (!sessionActiveRef.current) continue;
+          suspendedRef.current = true;
+          stopRecognition();
+          setStatus('speaking');
+          await speakWithBrowser(item.text);
+          continue;
+        }
+
+        const url = await item.promise;
+        if (!url) continue;
+        if (!sessionActiveRef.current) {
+          URL.revokeObjectURL(url);
+          continue;
+        }
+
+        suspendedRef.current = true;
+        stopRecognition();
+        setStatus('speaking');
+
+        await playUrl(url);
+        URL.revokeObjectURL(url);
+      }
+    } finally {
+      playingRef.current = false;
+
+      if (playQueueRef.current.length > 0) {
+        // A sentence finished streaming while the loop was wrapping up. Its own
+        // drainQueue() call returned early because playingRef was still set, so
+        // without this the rest of the answer would never be spoken.
+        drainQueue();
+      } else if (sessionActiveRef.current) {
+        // Only hand the microphone back once nothing else is queued, otherwise the gap
+        // between two sentences would briefly re-open the mic onto the assistant's voice.
+        suspendedRef.current = false;
+        setStatus('listening');
+        startRecognition();
+      }
+    }
+  }
+
+  function playUrl(url) {
+    return new Promise((resolve) => {
+      let audio = audioRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audioRef.current = audio;
+      }
+      audio.src = url;
+      audio.volume = settingsRef.current.volume;
+      audio.onended = resolve;
+      audio.onerror = () => resolve();
+      audio.play().catch(() => {
+        setError('Your browser blocked audio playback. Click anywhere on the page, then try again.');
+        resolve();
       });
+    });
+  }
 
-      const room = new Room();
-      attachRoomListeners(room);
-      roomRef.current = room;
+  // ---- asking the knowledge base -------------------------------------------------
 
-      await room.connect(url, token);
+  async function askQuestion(question) {
+    setLiveText('');
+    appendEntry('user', question);
+    setStatus('thinking');
 
-      try {
-        await room.localParticipant.setMicrophoneEnabled(true);
-      } catch (micErr) {
-        throw new Error('Microphone permission denied. Please allow microphone access and try again.');
-      }
+    const answerId = appendEntry('assistant', '');
+    let pending = '';
+    let spokeAnything = false;
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-      // Explicitly unblocks playback of the agent's audio. This is still inside the
-      // click that started the call, which is what the browser wants to see.
-      try {
-        await room.startAudio();
-      } catch {
-        // Non-fatal - AudioPlaybackStatusChanged above will prompt if it's needed.
-      }
+    try {
+      const result = await api.chat.sendStream(
+        question,
+        conversationIdRef.current,
+        (delta) => {
+          appendToEntry(answerId, delta);
+          pending += delta;
 
-      setStatus('listening');
+          const { chunks, rest } = extractSpeakable(pending, !spokeAnything);
+          pending = rest;
+          for (const chunk of chunks) {
+            spokeAnything = true;
+            enqueueSpeech(chunk);
+          }
+        },
+        controller.signal
+      );
+
+      if (result?.conversationId) conversationIdRef.current = result.conversationId;
+
+      // Whatever didn't end with punctuation still needs speaking.
+      if (pending.trim()) enqueueSpeech(pending);
     } catch (err) {
-      setError(err.message || 'Failed to connect to voice assistant');
+      if (err.name === 'AbortError') return;
+      console.error(err);
+      setError(err.message || 'Failed to get an answer');
+      appendToEntry(answerId, ' [failed to get an answer]');
+      if (sessionActiveRef.current) {
+        setStatus('listening');
+        startRecognition();
+      }
+    } finally {
+      abortRef.current = null;
+    }
+  }
+
+  // ---- speech recognition --------------------------------------------------------
+
+  function startRecognition() {
+    if (!sessionActiveRef.current || suspendedRef.current || recognitionRef.current) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('Speech recognition is not supported in this browser. Try Chrome or Edge.');
       setStatus('error');
-      await disconnect();
+      sessionActiveRef.current = false;
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const chunk = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText += chunk;
+        else interimText += chunk;
+      }
+
+      // Show partial words in the box as they're recognized, exactly like dictation
+      // in the text chat.
+      if (interimText) setLiveText(interimText);
+
+      if (finalText.trim()) {
+        stopRecognition();
+        askQuestion(finalText.trim());
+      }
+    };
+
+    recognition.onerror = (event) => {
+      if (event.error === 'not-allowed') {
+        setError('Microphone permission denied. Please allow microphone access and try again.');
+        setStatus('error');
+        sessionActiveRef.current = false;
+      } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        setError(`Speech recognition error: ${event.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      // The engine stops itself after silence. Restart it so the call stays live
+      // until the user actually hangs up.
+      if (sessionActiveRef.current && !suspendedRef.current) {
+        startRecognition();
+      }
+    };
+
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      // start() throws if called while the previous instance is still shutting down;
+      // the onend handler above will retry.
+      recognitionRef.current = null;
     }
   }
 
-  async function disconnect() {
-    for (const el of audioElsRef.current.values()) {
-      el.remove();
+  function stopRecognition() {
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+    recognitionRef.current = null;
+    recognition.onend = null;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    try {
+      recognition.stop();
+    } catch {
+      // already stopped
     }
-    audioElsRef.current.clear();
-
-    if (roomRef.current) {
-      await roomRef.current.disconnect();
-      roomRef.current = null;
-    }
-    awaitingResponseRef.current = false;
   }
 
-  async function handleEndCall() {
-    await disconnect();
+  // ---- session lifecycle ---------------------------------------------------------
+
+  function startSession() {
+    setError('');
+    setLiveText('');
+    sessionActiveRef.current = true;
+    suspendedRef.current = false;
+    setStatus('listening');
+    startRecognition();
+  }
+
+  function endSession() {
+    sessionActiveRef.current = false;
+    suspendedRef.current = false;
+    stopRecognition();
+
+    abortRef.current?.abort();
+    abortRef.current = null;
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.src = '';
+    }
+    window.speechSynthesis?.cancel();
+    playQueueRef.current = [];
+    playingRef.current = false;
+    setLiveText('');
+  }
+
+  function handleEndCall() {
+    endSession();
     setStatus('idle');
   }
 
-  const connected = status !== 'idle' && status !== 'connecting' && status !== 'error';
+  const connected = status !== 'idle' && status !== 'error';
   const active = status === 'listening' || status === 'speaking';
 
   return (
@@ -242,7 +463,6 @@ export default function VoicePage() {
           settings={settings}
           onChange={updateSetting}
           onClose={() => setSettingsOpen(false)}
-          disabledVoiceSpeed={connected}
         />
       )}
 
@@ -252,15 +472,14 @@ export default function VoicePage() {
 
           <button
             type="button"
-            onClick={connected ? handleEndCall : connect}
-            disabled={status === 'connecting'}
+            onClick={connected ? handleEndCall : startSession}
             className={`relative z-10 mx-4 w-24 h-24 rounded-full flex items-center justify-center transition shadow-lg ${
               status === 'error'
                 ? 'bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400'
                 : connected
                 ? 'ai-gradient text-white'
                 : 'bg-violet-100 dark:bg-violet-500/15 text-violet-600 dark:text-violet-400'
-            } ${status === 'connecting' ? 'opacity-60 cursor-wait' : 'hover:opacity-90'}`}
+            } hover:opacity-90`}
             title={connected ? 'End call' : 'Start voice chat'}
           >
             {connected ? (
@@ -277,7 +496,7 @@ export default function VoicePage() {
         </div>
 
         <div
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium mb-8 ${
+          className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium mb-6 ${
             status === 'error'
               ? 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400'
               : 'bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300'
@@ -290,6 +509,21 @@ export default function VoicePage() {
           {STATUS_LABEL[status]}
         </div>
       </div>
+
+      {/* Live dictation box - what you're saying right now, as it's recognized. */}
+      {connected && (
+        <div className="w-full max-w-lg mb-6">
+          <div
+            className={`w-full min-h-[52px] px-4 py-3 rounded-xl border text-sm transition ${
+              liveText
+                ? 'border-violet-300 dark:border-violet-500/50 bg-white/80 dark:bg-gray-900/70 text-gray-900 dark:text-gray-100'
+                : 'border-dashed border-gray-300 dark:border-gray-700 bg-white/40 dark:bg-gray-900/40 text-gray-400 dark:text-gray-500 italic'
+            }`}
+          >
+            {liveText || (status === 'listening' ? 'Listening - start speaking...' : 'Mic paused while the assistant speaks')}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="w-full max-w-lg mb-6 p-3 rounded-lg bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-400 text-sm text-center">
@@ -306,27 +540,31 @@ export default function VoicePage() {
                 : 'Click the microphone to start a voice conversation with your Knowledge Base.'}
             </p>
           ) : (
-            transcript.map((entry) => (
-              <div
-                key={entry.segmentId}
-                className={`rounded-xl border px-4 py-2.5 transition-opacity backdrop-blur-md ${
-                  entry.final
-                    ? 'border-white/60 dark:border-gray-800/60 bg-white/60 dark:bg-gray-900/50'
-                    : 'border-dashed border-gray-200 dark:border-gray-800 opacity-60 italic'
-                }`}
-              >
-                <span
-                  className={`text-sm font-semibold ${
-                    entry.role === 'user'
-                      ? 'text-gray-900 dark:text-gray-100'
-                      : 'text-violet-600 dark:text-violet-400'
-                  }`}
-                >
-                  {entry.role === 'user' ? 'You: ' : 'Assistant: '}
-                </span>
-                <span className="text-sm text-gray-700 dark:text-gray-300">{entry.text}</span>
-              </div>
-            ))
+            groupIntoTurns(transcript)
+              .reverse()
+              .map((turn) => (
+                <div key={turn[0].id} className="space-y-3">
+                  {turn.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="rounded-xl border border-white/60 dark:border-gray-800/60 bg-white/60 dark:bg-gray-900/50 backdrop-blur-md px-4 py-2.5"
+                    >
+                      <span
+                        className={`text-sm font-semibold ${
+                          entry.role === 'user'
+                            ? 'text-gray-900 dark:text-gray-100'
+                            : 'text-violet-600 dark:text-violet-400'
+                        }`}
+                      >
+                        {entry.role === 'user' ? 'You: ' : 'Assistant: '}
+                      </span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        {entry.text || <span className="italic text-gray-400">...</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))
           )}
         </div>
       )}
@@ -334,7 +572,7 @@ export default function VoicePage() {
   );
 }
 
-function SettingsPanel({ settings, onChange, onClose, disabledVoiceSpeed }) {
+function SettingsPanel({ settings, onChange, onClose }) {
   const [saved, setSaved] = useState(false);
 
   function handleSave() {
@@ -373,9 +611,8 @@ function SettingsPanel({ settings, onChange, onClose, disabledVoiceSpeed }) {
           <div className="relative">
             <select
               value={settings.voice}
-              disabled={disabledVoiceSpeed}
               onChange={(e) => onChange('voice', e.target.value)}
-              className="w-full appearance-none pl-3 pr-8 py-2.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-4 focus:ring-violet-500/10 focus:border-violet-500 disabled:opacity-50 transition"
+              className="w-full appearance-none pl-3 pr-8 py-2.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-4 focus:ring-violet-500/10 focus:border-violet-500 transition"
             >
               {VOICES.map((v) => (
                 <option key={v.id} value={v.id}>
@@ -385,9 +622,11 @@ function SettingsPanel({ settings, onChange, onClose, disabledVoiceSpeed }) {
             </select>
             <ChevronDown size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
           </div>
-          {disabledVoiceSpeed && (
-            <p className="text-xs text-gray-400 mt-1.5">End the call to change voice/speed for the next one.</p>
-          )}
+          <p className="text-xs text-gray-400 mt-1.5">
+            {settings.voice === BROWSER_VOICE
+              ? 'Speaks instantly using your device. More robotic, but no waiting.'
+              : 'Natural sounding, but adds a short wait while the audio is generated.'}
+          </p>
         </div>
 
         <div>
@@ -406,10 +645,9 @@ function SettingsPanel({ settings, onChange, onClose, disabledVoiceSpeed }) {
             max="1.5"
             step="0.1"
             value={settings.speed}
-            disabled={disabledVoiceSpeed}
             onChange={(e) => onChange('speed', parseFloat(e.target.value))}
             style={{ accentColor: '#6c2bff' }}
-            className="w-full disabled:opacity-50"
+            className="w-full"
           />
         </div>
 

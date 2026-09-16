@@ -18,6 +18,41 @@ exports.chat = async (req, res) => {
   }
 };
 
+// Streamed variant for the voice page: emits the answer as newline-delimited JSON as
+// it is generated, so the caller can start speaking the first sentence while the rest
+// is still being written instead of waiting for the whole response.
+exports.chatStream = async (req, res) => {
+  const { conversationId, message } = req.body;
+
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  try {
+    for await (const event of chatService.sendMessageStream({
+      userId: req.user.id,
+      message,
+      conversationId,
+      inputType: 'voice',
+      voice: true,
+    })) {
+      res.write(JSON.stringify(event) + '\n');
+    }
+  } catch (error) {
+    console.error('Chat stream error:', error);
+    // Headers are already sent, so this can't be an HTTP status any more.
+    res.write(JSON.stringify({ type: 'error', error: error.message }) + '\n');
+  }
+
+  res.end();
+};
+
 exports.listConversations = async (req, res) => {
   try {
     const conversations = await Conversation.find({ userId: req.user.id })

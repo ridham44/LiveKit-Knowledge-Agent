@@ -48,6 +48,18 @@ generateEmbedding('warmup')
   .then(() => console.log('✓ Embedding model ready'))
   .catch(err => console.error('✗ Embedding model warmup failed:', err.message));
 
+// Open the pooled TLS connections to the two services on the voice critical path, so
+// the first spoken answer doesn't pay a ~700ms handshake on top of everything else.
+const { prewarmConnection } = require('./services/httpAgent');
+Promise.all([
+  prewarmConnection('https://openrouter.ai/api/v1/models'),
+  process.env.DEEPGRAM_API_KEY
+    ? prewarmConnection('https://api.deepgram.com/v1/projects', {
+        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+      })
+    : Promise.resolve(),
+]).then(() => console.log('✓ Upstream connections warmed'));
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -55,6 +67,7 @@ const fileRoutes = require('./routes/files');
 const chatRoutes = require('./routes/chat');
 const livekitRoutes = require('./routes/livekit');
 const internalRoutes = require('./routes/internal');
+const ttsRoutes = require('./routes/tts');
 
 // Routes
 
@@ -74,6 +87,7 @@ app.use('/api/files', fileRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/livekit', livekitRoutes);
 app.use('/api/internal', internalRoutes);
+app.use('/api/tts', ttsRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

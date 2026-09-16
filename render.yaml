@@ -2,14 +2,16 @@ services:
   - name: knowledgevoice-backend
     type: web
     runtime: node
+    plan: free
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
-    disk:
-      name: uploads
-      mountPath: /var/data
-      sizeGB: 1
+    # No Persistent Disk: uploaded files are only staged in the app's own ephemeral
+    # filesystem for the few seconds it takes to extract their text into MongoDB, which
+    # is the real persistent store (see processingService.js). UPLOAD_DIR is deliberately
+    # not set here - the code's own default (./uploads, relative to the app) is fine on
+    # Render Free's ephemeral disk precisely because nothing needs to survive a restart.
     envVars:
       - key: NODE_ENV
         value: production
@@ -27,13 +29,14 @@ services:
         value: openai/gpt-4o-mini
       - key: MAX_FILE_SIZE
         value: "52428800"
-      - key: UPLOAD_DIR
-        value: /var/data/uploads
       - key: LIVEKIT_URL
         sync: false
       - key: LIVEKIT_API_KEY
         sync: false
       - key: LIVEKIT_API_SECRET
+        sync: false
+      # Text-to-speech for the Voice page; same key the voice-agent uses.
+      - key: DEEPGRAM_API_KEY
         sync: false
       - key: FRONTEND_URL
         sync: false
@@ -55,9 +58,14 @@ services:
       - key: VITE_LIVEKIT_URL
         sync: false
 
+  # Background Worker services are NOT available on Render's Free plan (Render restricts
+  # Free to Web Services and Static Sites only) - this is the one component of this
+  # project that requires a paid Render plan. "starter" is the cheapest tier that
+  # supports this service type; there is no free way to run it on Render itself.
   - name: knowledgevoice-voice-agent
     type: worker
     runtime: node
+    plan: starter
     rootDir: voice-agent
     buildCommand: npm install
     startCommand: npm start

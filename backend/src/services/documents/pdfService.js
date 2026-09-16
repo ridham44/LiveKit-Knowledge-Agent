@@ -1,22 +1,23 @@
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 const fs = require('fs');
 
+// pdf-parse v2's API is a class (`new PDFParse({ data }).getText()`), not the callable
+// function v1 had - `PDFParse` must come from a destructured import, not a default one.
 async function extractTextFromPDF(filePath) {
-  try {
-    const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdfParse(dataBuffer);
+  const dataBuffer = fs.readFileSync(filePath);
+  const parser = new PDFParse({ data: dataBuffer });
 
-    let text = '';
-    if (data.text) {
-      text = data.text;
-    }
+  try {
+    const result = await parser.getText();
 
     return {
-      text: text.trim(),
-      pageCount: data.numpages,
+      text: (result.text || '').trim(),
+      pageCount: result.total,
     };
   } catch (error) {
     throw new Error(`PDF extraction failed: ${error.message}`);
+  } finally {
+    await parser.destroy();
   }
 }
 

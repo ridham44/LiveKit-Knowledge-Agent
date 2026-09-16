@@ -26,7 +26,9 @@ exports.uploadFile = async (req, res) => {
       return res.status(400).json({ error: 'File too large. Max size: 50MB' });
     }
 
-    // Create file record
+    // filePath is only a pointer to the temp upload for processDocument to read once -
+    // it gets deleted right after text extraction (see processingService.js), so nothing
+    // past that point (RAG retrieval, chat) ever depends on it still existing on disk.
     const file = new File({
       userId: req.user.id,
       fileName: originalname,
@@ -99,11 +101,17 @@ exports.deleteFile = async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    // Delete physical file
+    // Best-effort cleanup of the physical file. It's normal for this to already be
+    // gone by now - processDocument deletes it right after extracting its text (see
+    // processingService.js), since nothing reads the original file again afterward.
+    // This only actually finds something to remove if processing never got to run
+    // (e.g. status is still 'pending' or the process crashed mid-run).
     try {
       await fs.unlink(file.filePath);
     } catch (err) {
-      console.error('Error deleting file:', err);
+      if (err.code !== 'ENOENT') {
+        console.error('Error deleting file:', err);
+      }
     }
 
     // Delete associated document chunks
