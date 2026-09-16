@@ -39,17 +39,14 @@ connectDB().catch(() => {});
 // ahead of time, so the first real request of a cold start doesn't also pay a ~700ms
 // handshake on top of everything else. Best-effort: prewarmConnection swallows its
 // own failures, since a dead network here should surface on the real request instead.
+// One entry covers both chat (aiProvider.js) and embeddings (embeddingService.js) -
+// both now go through OpenRouter, sharing the same keep-alive connection.
 const { prewarmConnection } = require('./services/httpAgent');
 Promise.all([
   prewarmConnection('https://openrouter.ai/api/v1/models'),
   process.env.DEEPGRAM_API_KEY
     ? prewarmConnection('https://api.deepgram.com/v1/projects', {
         Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-      })
-    : Promise.resolve(),
-  process.env.OPENAI_API_KEY
-    ? prewarmConnection('https://api.openai.com/v1/models', {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       })
     : Promise.resolve(),
 ]).then(() => console.log('✓ Upstream connections warmed'));

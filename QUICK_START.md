@@ -5,7 +5,7 @@
 This project is already configured to use:
 - **Database**: MongoDB Atlas (cloud) — no local `mongod` needed
 - **LLM**: OpenRouter (`openai/gpt-4o-mini`) — set via `OPENROUTER_API_KEY`
-- **Embeddings**: OpenAI's embeddings API (`text-embedding-3-small`) — set via `OPENAI_API_KEY` (required; see root `README.md` for why this isn't a local model anymore)
+- **Embeddings**: OpenRouter's `/embeddings` endpoint (`openai/text-embedding-3-small`) — same `OPENROUTER_API_KEY` as above, no separate key (see root `README.md` for why this isn't a local model anymore)
 - **Voice**: LiveKit Cloud — set via `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`
 
 All of this lives in `backend/.env`. If that file already has real values filled in (not the placeholder `sk-...` strings), you can skip straight to **Running the App**.
@@ -14,8 +14,7 @@ All of this lives in `backend/.env`. If that file already has real values filled
 - Node.js 18+
 - A `backend/.env` file (copy from `backend/.env.example` if missing) with:
   - `MONGODB_URI` — your MongoDB Atlas connection string, **including the database name** in the path, e.g. `mongodb+srv://user:pass@cluster.mongodb.net/knowledgevoice?appName=Cluster0` (a common mistake is leaving the path empty, which silently connects to Atlas's default `test` database instead)
-  - `OPENROUTER_API_KEY` — get one free at https://openrouter.ai/keys
-  - `OPENAI_API_KEY` — required for embeddings (file upload / RAG won't work without it), get one at https://platform.openai.com/api-keys
+  - `OPENROUTER_API_KEY` — get one free at https://openrouter.ai/keys (used for chat **and** embeddings — file upload / RAG won't work without it)
   - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` — from your LiveKit Cloud project (only needed once voice is wired up)
 
 > **Windows note**: `npm install` for packages with native dependencies (e.g. `sharp`) can fail under Git Bash with `ERR_INVALID_ARG_TYPE: The "file" argument must be of type string`. If you hit that, run the same `npm install` command in **PowerShell** instead — it resolves the issue. Running the dev servers themselves (`npm run dev`) works fine in either shell.
@@ -135,7 +134,7 @@ exact same project). See `voice-agent/README.md` for more voice-specific trouble
 
 ### File shows "failed"
 Check the backend terminal for the error, or `File.errorMessage` in MongoDB. Most common
-causes: unreadable/corrupt file, or a missing/invalid `OPENAI_API_KEY` (embeddings call fails
+causes: unreadable/corrupt file, or a missing/invalid `OPENROUTER_API_KEY` (embeddings call fails
 for every chunk).
 
 ### Frontend can't reach backend / network errors in console

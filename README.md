@@ -28,8 +28,8 @@ Deploys as **one Vercel project**: the React frontend and the Express API (as Ve
                          │       │  same-origin /api/*             │
                          │       ▼                                 │
                          │  api/index.js  ──►  backend/src/app.js  │ ◄── MongoDB Atlas
-                         │  (Vercel Function, wraps Express)       │ ◄── OpenRouter (LLM)
-                         └───────────────┬─────────────────────────┘ ◄── OpenAI (embeddings)
+                         │  (Vercel Function, wraps Express)       │ ◄── OpenRouter (LLM + embeddings)
+                         └───────────────┬─────────────────────────┘
                                          │ internal API (shared secret)
                                          ▲
                          ┌───────────────┴─────────────┐
@@ -62,7 +62,7 @@ User uploads PDF/DOCX/TXT
         ↓
 Vercel Function receives it into memory (multer.memoryStorage(), never touches disk)
         ↓
-Extract text → clean → chunk → generate embeddings (OpenAI API)   — all awaited, in-request
+Extract text → clean → chunk → generate embeddings (OpenRouter API)   — all awaited, in-request
         ↓
 Store document metadata/text/chunks/embeddings in MongoDB
         ↓
@@ -87,11 +87,11 @@ The original embedding step ran **locally, in-process**: `@huggingface/transform
 2. **Bundle size.** `onnxruntime-node`'s prebuilt native binaries push the function's deployed bundle size uncomfortably close to Vercel's 250MB-unzipped-per-function limit once combined with the rest of this app's dependencies.
 3. **No persistent cache directory.** The model's weights need to be downloaded and cached somewhere; Vercel Functions only offer ephemeral `/tmp` (wiped between cold starts, not shared across instances), so every cold start would effectively re-download the model — worse than the first point above, repeatedly.
 
-**What changed:** `backend/src/services/ai/embeddingService.js` now calls **OpenAI's embeddings API** (`text-embedding-3-small` by default, configurable via `EMBEDDING_MODEL`) over HTTPS, batched (up to 100 chunks per request) to keep the number of round trips down. This requires a **new required environment variable, `OPENAI_API_KEY`**, that the original project didn't need — that's a genuine new cost/dependency, called out explicitly here rather than introduced silently.
+**What changed:** `backend/src/services/ai/embeddingService.js` now calls **OpenRouter's `/embeddings` endpoint** (`openai/text-embedding-3-small` by default, configurable via `EMBEDDING_MODEL`) over HTTPS, batched (up to 100 chunks per request) to keep the number of round trips down. This reuses the **same `OPENROUTER_API_KEY`** already required for chat — no separate provider, key, or billing account needed. (An earlier version of this migration called OpenAI directly and required a second `OPENAI_API_KEY`; that was replaced once it turned out OpenRouter offers an OpenAI-compatible embeddings endpoint on the same account.)
 
-**What stayed the same:** the RAG architecture is unchanged. `retrievalService.js`'s cosine-similarity ranking and keyword-overlap scoring are dimension-agnostic and needed zero changes — they work the same way regardless of which model produced the vectors. The chunking strategy, the "full context under 20 chunks" retrieval behavior, the LLM call (OpenRouter), and the streaming response format are all untouched.
+**What stayed the same:** the RAG architecture is unchanged. `retrievalService.js`'s cosine-similarity ranking and keyword-overlap scoring are dimension-agnostic and needed zero changes — they work the same way regardless of which model produced the vectors. The chunking strategy, the "full context under 20 chunks" retrieval behavior, the LLM call, and the streaming response format are all untouched.
 
-**Not preserved across this migration:** vectors from the old local model and the new OpenAI model are not comparable (different model, different geometry). This only matters if you already had production data under the old model — there was none at the time of this migration, so no re-embedding step was needed. If you ever change `EMBEDDING_MODEL` later, existing `DocumentChunk` embeddings would need to be regenerated (re-upload the affected files) before search quality is reliable again.
+**Not preserved across this migration:** vectors from the old local model and the new remote model are not comparable (different model, different geometry). This only matters if you already had production data under the old model — there was none at the time of this migration, so no re-embedding step was needed. If you ever change `EMBEDDING_MODEL` later, existing `DocumentChunk` embeddings would need to be regenerated (re-upload the affected files) before search quality is reliable again.
 
 ## Voice agent worker
 
@@ -112,7 +112,7 @@ How it fits together:
 | Backend | Node.js + Express 5, Mongoose 9, deployed as a Vercel Function |
 | Database | MongoDB (Atlas or local) |
 | LLM | OpenRouter (model-agnostic, OpenAI-compatible; default `openai/gpt-4o-mini`) |
-| Embeddings | OpenAI embeddings API (`text-embedding-3-small` by default) — see above for why this isn't local anymore |
+| Embeddings | OpenRouter's `/embeddings` endpoint (`openai/text-embedding-3-small` by default), same key as chat — see above for why this isn't local anymore |
 | Voice transport | LiveKit (Cloud or self-hosted) |
 | Voice STT | AssemblyAI |
 | Voice TTS | Deepgram Aura-2 |
@@ -166,8 +166,7 @@ See [`voice-agent/README.md`](voice-agent/README.md) for how a session works and
 - Node.js 20+
 - A MongoDB database (Atlas recommended, or local `mongod`)
 - API keys/accounts:
-  - [OpenRouter](https://openrouter.ai/keys) — for chat completions
-  - [OpenAI](https://platform.openai.com/api-keys) — for embeddings (**new** requirement, see above)
+  - [OpenRouter](https://openrouter.ai/keys) — for chat completions **and** embeddings (see above)
   - [LiveKit Cloud](https://cloud.livekit.io) (or a self-hosted LiveKit server) — same project's URL/key/secret used by **both** the API and `voice-agent`
   - [AssemblyAI](https://www.assemblyai.com/dashboard/signup) — speech-to-text for the voice agent worker (free tier available)
   - [Deepgram](https://console.deepgram.com/signup) — text-to-speech for both the Voice page and the voice agent worker (free tier available)
@@ -180,10 +179,9 @@ PORT=5000
 MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/knowledgevoice
 JWT_SECRET=<a long random string — never use the default in production>
 JWT_EXPIRE=7d
-OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_API_KEY=sk-or-v1-...    # used for chat AND embeddings, see "Embeddings" above
 OPENROUTER_CHAT_MODEL=openai/gpt-4o-mini
-OPENAI_API_KEY=sk-...              # required — see "Embeddings" above
-EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_MODEL=openai/text-embedding-3-small
 MAX_FILE_SIZE=4194304              # 4MB — see "File upload & processing" above for why
 LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_API_KEY=...
@@ -225,10 +223,9 @@ AGENT_SHARED_SECRET=<same value as backend/.env>
 | `MONGODB_URI` | Yes | Atlas connection string, **including the database name** in the path |
 | `JWT_SECRET` | Yes | Long random string — generate one, don't reuse a placeholder |
 | `JWT_EXPIRE` | No | Defaults to `7d` |
-| `OPENROUTER_API_KEY` | Yes | Chat completions |
+| `OPENROUTER_API_KEY` | Yes | Chat completions **and** embeddings, see [Embeddings](#embeddings-why-the-local-model-was-replaced) |
 | `OPENROUTER_CHAT_MODEL` | No | Defaults to `openai/gpt-4o-mini` |
-| `OPENAI_API_KEY` | Yes | **New** — embeddings, see [Embeddings](#embeddings-why-the-local-model-was-replaced) |
-| `EMBEDDING_MODEL` | No | Defaults to `text-embedding-3-small` |
+| `EMBEDDING_MODEL` | No | Defaults to `openai/text-embedding-3-small` |
 | `MAX_FILE_SIZE` | No | Defaults to 4MB — do not raise above ~4MB, see [File upload & processing](#file-upload--processing) |
 | `LIVEKIT_URL` | Yes | `wss://your-project.livekit.cloud` |
 | `LIVEKIT_API_KEY` | Yes | |
