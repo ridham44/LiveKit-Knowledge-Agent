@@ -1,10 +1,16 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function getJwtSecret() {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not configured');
+  }
+  return process.env.JWT_SECRET;
+}
 
 function passwordPolicyError(password) {
   if (password.length < 8) return 'Password must be at least 8 characters';
@@ -52,7 +58,7 @@ exports.signup = async (req, res) => {
     // Generate token
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: JWT_EXPIRE }
     );
 
@@ -90,7 +96,7 @@ exports.login = async (req, res) => {
     // Generate token
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: JWT_EXPIRE }
     );
 

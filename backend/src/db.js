@@ -14,9 +14,14 @@ function connectDB() {
     return Promise.resolve(mongoose.connection);
   }
 
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    return Promise.reject(new Error('MONGODB_URI is not configured'));
+  }
+
   if (!connectionPromise) {
     connectionPromise = mongoose
-      .connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/knowledgevoice', {
+      .connect(mongoUri, {
         // Keeps each function instance's pool small - many concurrent serverless
         // invocations each hold their own pool, and Atlas' free-tier connection cap
         // (500) is shared across all of them.
