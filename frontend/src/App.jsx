@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { AuthContext } from './context/AuthContext';
-import './App.css';
 
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -36,10 +35,10 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-950">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-purple-400 border-t-purple-700 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
         </div>
       </div>
     );

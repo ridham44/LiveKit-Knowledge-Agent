@@ -3,6 +3,7 @@ const DocumentChunk = require('../../models/DocumentChunk');
 const { extractTextFromPDF } = require('./pdfService');
 const { extractTextFromDOCX } = require('./docxService');
 const { extractTextFromTXT } = require('./txtService');
+const { normalizeText } = require('./textCleaningService');
 const { chunkText } = require('./chunkingService');
 const { generateEmbeddings } = require('../ai/embeddingService');
 
@@ -34,10 +35,11 @@ async function processDocument(fileId) {
     }
 
     const { text } = extractedData;
-    file.textContent = text;
+    const cleanedText = normalizeText(text);
+    file.textContent = cleanedText;
 
-    // Chunk the text
-    const chunks = chunkText(text, 1000, 100);
+    // Chunk the cleaned text
+    const chunks = chunkText(cleanedText, 1000, 100);
 
     if (chunks.length === 0) {
       throw new Error('No text content extracted from file');

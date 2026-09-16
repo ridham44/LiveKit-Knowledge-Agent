@@ -79,7 +79,20 @@ exports.listConversations = async (req, res) => {
       .sort({ updatedAt: -1 })
       .limit(50);
 
-    res.json(conversations);
+    const withPreviews = await Promise.all(
+      conversations.map(async (conversation) => {
+        const lastMessage = await Message.findOne({ conversationId: conversation._id })
+          .sort({ createdAt: -1 })
+          .select('content');
+
+        return {
+          ...conversation.toObject(),
+          preview: lastMessage ? lastMessage.content.substring(0, 100) : '',
+        };
+      })
+    );
+
+    res.json(withPreviews);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
