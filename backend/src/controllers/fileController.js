@@ -85,7 +85,7 @@ exports.deleteFile = async (req, res) => {
 
     // Delete associated document chunks
     const DocumentChunk = require('../models/DocumentChunk');
-    await DocumentChunk.deleteMany({ fileId: file._id });
+    await DocumentChunk.deleteMany({ fileId: file._id, userId: req.user.id });
 
     res.json({ message: 'File deleted' });
   } catch (error) {
@@ -98,7 +98,6 @@ function getFileType(filename) {
   const typeMap = {
     '.pdf': 'pdf',
     '.docx': 'docx',
-    '.doc': 'docx',
     '.txt': 'txt',
   };
   return typeMap[ext] || null;

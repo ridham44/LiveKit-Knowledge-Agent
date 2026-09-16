@@ -28,23 +28,6 @@ function cosineSimilarity(vecA, vecB) {
   return dotProduct / (normA * normB);
 }
 
-// Fraction of meaningful query terms that literally appear in the chunk text.
-// Small local embedding models often fail to rank an exact-fact chunk above
-// generic/noisy ones in repetitive documents (e.g. tables) - this keyword
-// signal compensates by rewarding literal term matches.
-function keywordOverlapScore(query, text) {
-  const tokens = query.toLowerCase().match(/[a-z0-9]+/g) || [];
-  const meaningful = tokens.filter(t => t.length > 2 && !STOPWORDS.has(t));
-
-  if (meaningful.length === 0) {
-    return 0;
-  }
-
-  const lowerText = text.toLowerCase();
-  const hits = meaningful.filter(t => lowerText.includes(t)).length;
-  return hits / meaningful.length;
-}
-
 // Below this many total chunks, every retrieval includes the ENTIRE knowledge base
 // instead of ranking/filtering it. A fact like an email address often shares no
 // literal or strong semantic overlap with the question that asks for it (e.g. "what
@@ -55,9 +38,6 @@ function keywordOverlapScore(query, text) {
 const FULL_CONTEXT_CHUNK_THRESHOLD = 20;
 
 // Fraction of meaningful query terms that literally appear in the chunk text.
-// Small local embedding models often fail to rank an exact-fact chunk above
-// generic/noisy ones in repetitive documents (e.g. tables) - this keyword
-// signal compensates by rewarding literal term matches.
 function keywordOverlapScore(query, text) {
   const tokens = query.toLowerCase().match(/[a-z0-9]+/g) || [];
   const meaningful = tokens.filter(t => t.length > 2 && !STOPWORDS.has(t));
