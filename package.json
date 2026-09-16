@@ -1,0 +1,20 @@
+{
+  "name": "knowledgevoice",
+  "private": true,
+  "version": "1.0.0",
+  "description": "KnowledgeVoice - single Vercel project (React/Vite frontend + Express API as Vercel Functions). voice-agent/ is a separate long-running worker, deployed independently.",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "install:all": "npm install --prefix frontend && npm install --prefix backend",
+    "postinstall": "npm run install:all",
+    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix backend",
+    "lint": "npm run lint --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

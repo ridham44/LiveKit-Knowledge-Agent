@@ -19,10 +19,6 @@ const fileSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
-  filePath: {
-    type: String,
-    required: true,
-  },
   status: {
     type: String,
     enum: ['pending', 'processing', 'processed', 'failed'],

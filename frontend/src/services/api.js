@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Frontend and API are served from the same Vercel deployment (same-origin), so API
+// calls use a relative path rather than an absolute backend URL. Locally, Vite's dev
+// server proxies /api to the backend dev server (see vite.config.js) so this works
+// unchanged in both environments with no env var needed.
+const API_URL = '';
 
 function getToken() {
   return localStorage.getItem('token') || sessionStorage.getItem('token');

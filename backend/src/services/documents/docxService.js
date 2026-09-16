@@ -1,12 +1,11 @@
-const fs = require('fs');
 const JSZip = require('jszip');
 const xml2js = require('xml2js');
 
-async function extractTextFromDOCX(filePath) {
+// Takes the file's raw bytes directly (no disk access) - see pdfService.js for why.
+async function extractTextFromDOCX(buffer) {
   try {
-    const data = fs.readFileSync(filePath);
     const zip = new JSZip();
-    const zipData = await zip.loadAsync(data);
+    const zipData = await zip.loadAsync(buffer);
 
     // Read document.xml
     const documentXml = await zipData.file('word/document.xml').async('text');

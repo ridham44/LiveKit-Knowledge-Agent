@@ -1,67 +1,15 @@
+# Render is used ONLY for the voice-agent worker - a long-running LiveKit process that
+# cannot run as a Vercel serverless function (see voice-agent/README.md and the root
+# README's "Voice Agent Worker" section). The frontend and backend API used to be
+# deployed here too (as a Static Site + Web Service); they are now one Vercel project
+# instead (see vercel.json at the repo root) and have been removed from this file.
+#
+# Render is one option for hosting this worker, not a requirement - any host that
+# supports a long-running Node.js process works (Railway, Fly.io, a small VPS, etc.).
 services:
-  - name: knowledgevoice-backend
-    type: web
-    runtime: node
-    plan: free
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: npm start
-    healthCheckPath: /health
-    # No Persistent Disk: uploaded files are only staged in the app's own ephemeral
-    # filesystem for the few seconds it takes to extract their text into MongoDB, which
-    # is the real persistent store (see processingService.js). UPLOAD_DIR is deliberately
-    # not set here - the code's own default (./uploads, relative to the app) is fine on
-    # Render Free's ephemeral disk precisely because nothing needs to survive a restart.
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 5000
-      - key: MONGODB_URI
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: JWT_EXPIRE
-        value: 7d
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: OPENROUTER_CHAT_MODEL
-        value: openai/gpt-4o-mini
-      - key: MAX_FILE_SIZE
-        value: "52428800"
-      - key: LIVEKIT_URL
-        sync: false
-      - key: LIVEKIT_API_KEY
-        sync: false
-      - key: LIVEKIT_API_SECRET
-        sync: false
-      # Text-to-speech for the Voice page; same key the voice-agent uses.
-      - key: DEEPGRAM_API_KEY
-        sync: false
-      - key: FRONTEND_URL
-        sync: false
-      - key: AGENT_SHARED_SECRET
-        sync: false
-
-  - name: knowledgevoice-frontend
-    type: web
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    routes:
-      - source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        sync: false
-      - key: VITE_LIVEKIT_URL
-        sync: false
-
   # Background Worker services are NOT available on Render's Free plan (Render restricts
-  # Free to Web Services and Static Sites only) - this is the one component of this
-  # project that requires a paid Render plan. "starter" is the cheapest tier that
-  # supports this service type; there is no free way to run it on Render itself.
+  # Free to Web Services and Static Sites only) - "starter" is the cheapest tier that
+  # supports this service type. There is no free way to run it on Render itself.
   - name: knowledgevoice-voice-agent
     type: worker
     runtime: node
@@ -82,6 +30,8 @@ services:
         sync: false
       - key: DEEPGRAM_TTS_MODEL
         value: aura-2-luna-en
+      # URL of the deployed Vercel project, e.g. https://your-app.vercel.app - no
+      # trailing slash, no /api suffix (the worker appends /api/internal/... itself).
       - key: BACKEND_URL
         sync: false
       - key: AGENT_SHARED_SECRET

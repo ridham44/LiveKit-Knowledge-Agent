@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { keepAliveAgent } = require('../httpAgent');
+const { getPublicAppUrl } = require('../../config/publicUrl');
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const CHAT_MODEL = process.env.OPENROUTER_CHAT_MODEL || 'openai/gpt-4o-mini';
@@ -27,7 +28,7 @@ function buildRequest(messages, systemPrompt, temperature, maxTokens, stream) {
     headers: {
       'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+      'HTTP-Referer': getPublicAppUrl(),
       'X-Title': 'KnowledgeVoice',
     },
   };

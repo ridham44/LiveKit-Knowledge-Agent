@@ -27,6 +27,15 @@ for 15s on a long answer.
 5. Every turn is saved to the same `Conversation`/`Message` collections the text chat uses (tagged
    `inputType: "voice"`), so it shows up in chat history automatically.
 
+## Hosting
+
+This worker is a long-running process - it cannot run as a Vercel serverless function
+(the rest of the app, in `frontend/` + `api/` + `backend/`, is one Vercel project; this
+is the one piece that needs separate hosting). See `../render.md` for one deployment
+option (Render Background Worker); any host that runs a persistent Node.js process
+works, since this only ever makes outbound connections (to LiveKit Cloud and to the
+deployed backend's `/api/internal/*` routes) and never needs inbound traffic.
+
 ## Setup
 
 ```bash
@@ -42,7 +51,7 @@ cp .env.example .env   # then fill in the values below
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Same LiveKit Cloud project as `backend/.env` - copy the exact same values |
 | `ASSEMBLYAI_API_KEY` | https://www.assemblyai.com/dashboard/signup (free tier available) |
 | `DEEPGRAM_API_KEY` | https://console.deepgram.com/signup (free tier available) |
-| `BACKEND_URL` | URL of the running Node backend, e.g. `http://localhost:5000` |
+| `BACKEND_URL` | Local dev: `http://localhost:5000`. Production: your Vercel deployment's URL, e.g. `https://your-app.vercel.app` (no trailing slash, no `/api` suffix) |
 | `AGENT_SHARED_SECRET` | Must exactly match `AGENT_SHARED_SECRET` in `backend/.env` |
 
 ## Running

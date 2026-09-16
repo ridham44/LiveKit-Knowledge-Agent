@@ -1,5 +1,4 @@
 const File = require('../models/File');
-const fs = require('fs').promises;
 const path = require('path');
 
 const { processDocument } = require('../services/documents/processingService');
@@ -10,53 +9,36 @@ exports.uploadFile = async (req, res) => {
       return res.status(400).json({ error: 'No file provided' });
     }
 
-    const { originalname, filename, size, mimetype } = req.file;
+    const { originalname, size, buffer } = req.file;
     const fileType = getFileType(originalname);
 
     // Validate file type
     if (!['pdf', 'docx', 'txt'].includes(fileType)) {
-      await fs.unlink(req.file.path);
       return res.status(400).json({ error: 'Unsupported file type. Supported: PDF, DOCX, TXT' });
     }
 
-    // Validate file size (50MB max)
-    const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 52428800;
-    if (size > MAX_FILE_SIZE) {
-      await fs.unlink(req.file.path);
-      return res.status(400).json({ error: 'File too large. Max size: 50MB' });
-    }
-
-    // filePath is only a pointer to the temp upload for processDocument to read once -
-    // it gets deleted right after text extraction (see processingService.js), so nothing
-    // past that point (RAG retrieval, chat) ever depends on it still existing on disk.
     const file = new File({
       userId: req.user.id,
       fileName: originalname,
       fileType,
       fileSize: size,
-      filePath: req.file.path,
       status: 'pending',
     });
 
     await file.save();
 
-    // Process document asynchronously
-    processDocument(file._id).catch(err => {
-      console.error('Document processing error:', err);
-    });
+    // Processed synchronously (awaited) rather than fire-and-forget: a serverless
+    // function isn't guaranteed to keep running after the response is sent, so
+    // extraction/chunking/embedding has to finish before responding. This also means
+    // the status returned below is always the real outcome ('processed' or 'failed'),
+    // not a 'pending' placeholder the client had no way to follow up on.
+    await processDocument(file._id, buffer);
 
-    res.status(201).json({
-      _id: file._id,
-      fileName: file.fileName,
-      fileType: file.fileType,
-      fileSize: file.fileSize,
-      status: file.status,
-      createdAt: file.createdAt,
-    });
+    const processed = await File.findById(file._id)
+      .select('fileName fileType fileSize status chunkCount errorMessage createdAt');
+
+    res.status(201).json(processed);
   } catch (error) {
-    if (req.file) {
-      await fs.unlink(req.file.path).catch(err => console.error(err));
-    }
     res.status(500).json({ error: error.message });
   }
 };
@@ -99,19 +81,6 @@ exports.deleteFile = async (req, res) => {
 
     if (!file) {
       return res.status(404).json({ error: 'File not found' });
-    }
-
-    // Best-effort cleanup of the physical file. It's normal for this to already be
-    // gone by now - processDocument deletes it right after extracting its text (see
-    // processingService.js), since nothing reads the original file again afterward.
-    // This only actually finds something to remove if processing never got to run
-    // (e.g. status is still 'pending' or the process crashed mid-run).
-    try {
-      await fs.unlink(file.filePath);
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        console.error('Error deleting file:', err);
-      }
     }
 
     // Delete associated document chunks

@@ -12,3 +12,6 @@ coverage/
 *.swp
 *.swo
 uploads/
+
+# Vercel CLI (project link metadata, local `vercel dev`/`vercel build` output)
+.vercel

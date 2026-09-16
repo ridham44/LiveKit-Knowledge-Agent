@@ -1,4 +1,3 @@
-const fs = require('fs').promises;
 const File = require('../../models/File');
 const DocumentChunk = require('../../models/DocumentChunk');
 const { extractTextFromPDF } = require('./pdfService');
@@ -8,24 +7,15 @@ const { normalizeText } = require('./textCleaningService');
 const { chunkText } = require('./chunkingService');
 const { generateEmbeddings } = require('../ai/embeddingService');
 
-// The uploaded file on disk is only ever needed for this one extraction pass - once
-// its text is in MongoDB (below), nothing else reads it again. Deleting it here (rather
-// than leaving it on disk until the user explicitly deletes the File record) means the
-// app never depends on Render's ephemeral filesystem surviving between requests: on a
-// host with no persistent disk, the file would vanish on the next restart/redeploy
-// anyway, so there's no reason to pretend it's still there in the meantime.
-async function cleanupTempFile(filePath) {
-  if (!filePath) return;
-  try {
-    await fs.unlink(filePath);
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      console.error('Failed to clean up temp upload:', err.message);
-    }
-  }
-}
-
-async function processDocument(fileId) {
+// Runs synchronously inside the upload request (the caller awaits this) rather than
+// fire-and-forget in the background. A serverless function's execution is not
+// guaranteed to keep running once a response has been sent, so there's no reliable
+// way to keep extracting/chunking/embedding *after* responding to the client - unlike
+// a long-lived server process, which is what the original fire-and-forget version of
+// this assumed. `buffer` is the upload's raw bytes, held only in memory for the life
+// of this request; nothing here ever touches a filesystem, so nothing depends on a
+// temp file still existing afterward.
+async function processDocument(fileId, buffer) {
   let file;
   try {
     file = await File.findById(fileId);
@@ -40,13 +30,13 @@ async function processDocument(fileId) {
     let extractedData;
     switch (file.fileType) {
       case 'pdf':
-        extractedData = await extractTextFromPDF(file.filePath);
+        extractedData = await extractTextFromPDF(buffer);
         break;
       case 'docx':
-        extractedData = await extractTextFromDOCX(file.filePath);
+        extractedData = await extractTextFromDOCX(buffer);
         break;
       case 'txt':
-        extractedData = await extractTextFromTXT(file.filePath);
+        extractedData = await extractTextFromTXT(buffer);
         break;
       default:
         throw new Error(`Unsupported file type: ${file.fileType}`);
@@ -93,10 +83,6 @@ async function processDocument(fileId) {
       file.errorMessage = error.message;
       file.updatedAt = new Date();
       await file.save();
-    }
-  } finally {
-    if (file) {
-      await cleanupTempFile(file.filePath);
     }
   }
 }

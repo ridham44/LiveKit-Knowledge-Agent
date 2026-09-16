@@ -1,10 +1,8 @@
-const fs = require('fs');
-
-async function extractTextFromTXT(filePath) {
+// Takes the file's raw bytes directly (no disk access) - see pdfService.js for why.
+async function extractTextFromTXT(buffer) {
   try {
-    const text = fs.readFileSync(filePath, 'utf-8');
     return {
-      text: text.trim(),
+      text: buffer.toString('utf-8').trim(),
     };
   } catch (error) {
     throw new Error(`TXT extraction failed: ${error.message}`);
