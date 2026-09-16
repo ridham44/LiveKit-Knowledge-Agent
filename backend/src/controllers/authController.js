@@ -22,6 +22,12 @@ function passwordPolicyError(password) {
 
 exports.signup = async (req, res) => {
   try {
+    // Checked before any DB write: if this throws, it must do so before the user is
+    // created, not after - jwt.sign() happening last (after User.save()) meant a
+    // missing secret left a "ghost" account in Mongo with no way for the client to
+    // ever get a token for it, and no way to retry (the email is now "taken").
+    const jwtSecret = getJwtSecret();
+
     const { name, email, password, gender, companyName } = req.body;
 
     // Validation
@@ -58,7 +64,7 @@ exports.signup = async (req, res) => {
     // Generate token
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      getJwtSecret(),
+      jwtSecret,
       { expiresIn: JWT_EXPIRE }
     );
 
@@ -74,6 +80,8 @@ exports.signup = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
+    const jwtSecret = getJwtSecret();
+
     const { email, password } = req.body;
 
     // Validation
@@ -96,7 +104,7 @@ exports.login = async (req, res) => {
     // Generate token
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      getJwtSecret(),
+      jwtSecret,
       { expiresIn: JWT_EXPIRE }
     );
 
