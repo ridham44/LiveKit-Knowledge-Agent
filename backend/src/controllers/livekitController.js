@@ -1,4 +1,6 @@
-const { AccessToken } = require('livekit-server-sdk');
+// Required lazily inside generateToken (not at module top-level) so this route's
+// dependency can never affect the cold-start of every other route sharing this app -
+// see the comment in services/documents/pdfService.js for the full reasoning.
 
 // Must match the curated voice list the voice-agent actually supports
 // (voice-agent/agent.js). Kept as an allowlist so arbitrary strings can't reach
@@ -24,6 +26,7 @@ const MAX_SPEED = 1.5;
 // it never sees the user's JWT.
 exports.generateToken = async (req, res) => {
   try {
+    const { AccessToken } = require('livekit-server-sdk');
     const { conversationId, voice, speed } = req.body;
 
     const apiKey = process.env.LIVEKIT_API_KEY;

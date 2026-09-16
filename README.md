@@ -95,7 +95,7 @@ The original embedding step ran **locally, in-process**: `@huggingface/transform
 
 ## Voice agent worker
 
-`voice-agent/` is a long-running LiveKit Agents worker — it stays connected to a LiveKit Cloud project and waits to be dispatched into rooms. **This cannot run as a Vercel Function**; Vercel serverless functions are stateless, ephemeral, and time-limited (even at their most generous), and this worker is the opposite of all three by design. It must be deployed to something that runs a persistent Node.js process — see [`render.md`](render.md) for one option (Render Background Worker), or use any other host that supports a long-running process (Railway, Fly.io, a small VPS, etc.).
+`voice-agent/` is a long-running LiveKit Agents worker — it stays connected to a LiveKit Cloud project and waits to be dispatched into rooms. **This cannot run as a Vercel Function**; Vercel serverless functions are stateless, ephemeral, and time-limited (even at their most generous), and this worker is the opposite of all three by design. It must be deployed to something that runs a persistent Node.js process instead — Railway, Fly.io, a Render Background Worker, a small VPS, or any other host that keeps a long-running Node.js process alive. `agent.js` doesn't listen on a port or need inbound traffic; it only needs outbound network access to reach LiveKit Cloud and this Vercel deployment's `/api/internal/*` routes. See [`voice-agent/README.md`](voice-agent/README.md) for setup and environment variables.
 
 How it fits together:
 - The frontend gets a LiveKit token from `POST /api/livekit/token` (part of the same Vercel-hosted API) and connects directly to **LiveKit Cloud**.
@@ -135,7 +135,6 @@ KnowledgeVoice/
 ├── voice-agent/               # standalone LiveKit worker — STT → RAG (via the Vercel API) → TTS, hosted separately
 ├── package.json               # root scripts: install/build/dev orchestrate frontend + backend
 ├── vercel.json                 # routes /api/* to the Function, SPA fallback for everything else
-├── render.yaml, render.md      # voice-agent worker hosting only (see above)
 └── .gitignore
 ```
 
@@ -205,7 +204,7 @@ LIVEKIT_API_SECRET=...
 ASSEMBLYAI_API_KEY=...
 DEEPGRAM_API_KEY=...
 DEEPGRAM_TTS_MODEL=aura-2-luna-en
-BACKEND_URL=http://localhost:5000               # your Vercel URL in production, see render.md
+BACKEND_URL=http://localhost:5000               # your Vercel deployment URL in production
 AGENT_SHARED_SECRET=<same value as backend/.env>
 ```
 
@@ -217,7 +216,7 @@ AGENT_SHARED_SECRET=<same value as backend/.env>
 4. **Project Settings → General → Node.js Version**: select **20.x** (matches `engines.node` in every `package.json` here).
 5. **Project Settings → Environment Variables**: add every variable from the table below, for the **Production** environment (and **Preview**, if you want preview deployments to work end-to-end too).
 6. **Deploy.**
-7. Once deployed, if you're also running the voice agent worker: set its `BACKEND_URL` to this deployment's URL (see [`render.md`](render.md)).
+7. Once deployed, if you're also running the voice agent worker: set its `BACKEND_URL` to this deployment's URL (see [`voice-agent/README.md`](voice-agent/README.md)).
 
 ### Environment variables — Vercel (Production)
 

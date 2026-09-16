@@ -1,9 +1,12 @@
-const JSZip = require('jszip');
-const xml2js = require('xml2js');
-
 // Takes the file's raw bytes directly (no disk access) - see pdfService.js for why.
+// jszip/xml2js are required lazily here rather than at module top-level, consistent
+// with pdfService.js - both are pure JS with no native deps, so this is defensive
+// rather than a known issue, but it keeps every document-format service isolated the
+// same way so one format's dependency can never affect another route's cold start.
 async function extractTextFromDOCX(buffer) {
   try {
+    const JSZip = require('jszip');
+    const xml2js = require('xml2js');
     const zip = new JSZip();
     const zipData = await zip.loadAsync(buffer);
 

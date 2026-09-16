@@ -31,10 +31,11 @@ for 15s on a long answer.
 
 This worker is a long-running process - it cannot run as a Vercel serverless function
 (the rest of the app, in `frontend/` + `api/` + `backend/`, is one Vercel project; this
-is the one piece that needs separate hosting). See `../render.md` for one deployment
-option (Render Background Worker); any host that runs a persistent Node.js process
-works, since this only ever makes outbound connections (to LiveKit Cloud and to the
-deployed backend's `/api/internal/*` routes) and never needs inbound traffic.
+is the one piece that needs separate hosting). Any host that runs a persistent Node.js
+process works - Railway, Fly.io, a Render Background Worker, a small VPS, etc. - since
+this only ever makes outbound connections (to LiveKit Cloud and to the deployed
+backend's `/api/internal/*` routes) and never needs inbound traffic. Set `BACKEND_URL`
+below to that deployment's URL.
 
 ## Setup
 

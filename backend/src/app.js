@@ -1,13 +1,30 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 
 const { connectDB } = require('./db');
-const { corsOptions } = require('./config/cors');
+const { cors } = require('./config/cors');
+
+// Node's default behavior for an unhandled promise rejection (Node 15+) is to crash
+// the process, exactly as if it were an uncaught exception. On a traditional server
+// that's arguably fine (server.js restarts on exactly that basis), but inside a
+// Vercel serverless invocation there is no separate process manager to restart
+// anything - Node crashing the process IS the request crashing, and Vercel reports it
+// as a bare FUNCTION_INVOCATION_FAILED with no application-level detail at all. Every
+// route handler in this app already wraps its own logic in try/catch, so this is a
+// safety net for anything that manages to reject outside that (a detached promise
+// somewhere), not the primary error path - logging instead of exiting is deliberate:
+// exiting here would kill the whole function instance out from under any other
+// in-flight invocation sharing it.
+process.on('unhandledRejection', (reason) => {
+  console.error('✗ Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('✗ Uncaught exception:', err);
+});
 
 const app = express();
 
-app.use(cors(corsOptions));
+app.use(cors);
 app.use(express.json());
 app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
