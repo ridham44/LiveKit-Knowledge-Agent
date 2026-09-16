@@ -24,10 +24,24 @@ export async function apiCall(endpoint, options = {}) {
     headers,
   });
 
-  const data = await response.json();
+  // Vercel can return a plain-text platform error when a function fails before
+  // Express gets control. Read the body once and parse JSON only when present so
+  // callers see that real response rather than a secondary JSON parser error.
+  const body = await response.text();
+  let data = null;
+  if (body) {
+    try {
+      data = JSON.parse(body);
+    } catch {
+      if (!response.ok) {
+        throw new Error(body.trim() || `API request failed (${response.status})`);
+      }
+      throw new Error(`API returned an invalid JSON response (${response.status})`);
+    }
+  }
 
   if (!response.ok) {
-    throw new Error(data.error || 'API request failed');
+    throw new Error(data?.error || `API request failed (${response.status})`);
   }
 
   return data;
