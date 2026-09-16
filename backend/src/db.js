@@ -26,7 +26,12 @@ function connectDB() {
         // invocations each hold their own pool, and Atlas' free-tier connection cap
         // (500) is shared across all of them.
         maxPoolSize: 10,
-        serverSelectionTimeoutMS: 10_000,
+        // A cold start's first connection (DNS + TLS + Atlas handshake) is slower
+        // than a warm container reusing an existing one - 15s gives it a bit more
+        // room than the driver's 10s default before giving up, since app.js now
+        // awaits this directly on every request rather than relying on Mongoose's
+        // own (shorter) command-buffering timeout to paper over a slow cold start.
+        serverSelectionTimeoutMS: 15_000,
       })
       .then((conn) => {
         console.log('✓ MongoDB connected');

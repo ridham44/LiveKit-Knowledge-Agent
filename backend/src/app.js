@@ -28,9 +28,9 @@ app.use(cors);
 app.use(express.json());
 app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
-// Fired once per cold start (or once locally); not awaited here because Mongoose
-// buffers queries issued before the connection resolves, so requests don't need to
-// block on it explicitly - a route's own query just waits. Errors are logged inside
+// Fired once per cold start (or once locally) so the connection is already underway
+// by the time the first request's gate middleware (below) awaits it, rather than
+// only starting to connect once that middleware runs. Errors are logged inside
 // connectDB rather than thrown here, so a transient DB hiccup at boot can't take the
 // whole module (and therefore every route) down with it.
 connectDB().catch(() => {});
@@ -63,12 +63,35 @@ const ttsRoutes = require('./routes/tts');
 // Routes
 
 // Plain, unauthenticated health check. Deliberately returns nothing beyond a status -
-// no DB state, versions, or config details.
+// no DB state, versions, or config details. Registered before the DB-readiness gate
+// below so it never depends on Mongo being reachable - it's meant to answer even when
+// the database is down.
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Backend is running' });
+});
+
+// Every route below this point touches MongoDB. Mongoose's own command buffering
+// (queuing a query until the connection resolves, or failing it after
+// bufferTimeoutMS - default 10s) is the right idea, but on a cold start the
+// connection itself (DNS + TLS + Atlas handshake) can occasionally take close to
+// that same 10s, and if it does, whichever query happened to run first loses that
+// race and fails with a raw, confusing "buffering timed out" error - exactly what
+// was reported in production on a conversations.insertOne() during a fresh cold
+// start. Explicitly awaiting the connection here, ONCE, before any route's queries
+// even start, removes that race entirely: every request either proceeds against an
+// established connection or gets one clear, immediate error instead of a silent
+// 10-second stall.
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('Database unavailable:', error.message);
+    res.status(503).json({ error: 'Database temporarily unavailable, please try again' });
+  }
 });
 
 app.use('/api/auth', authRoutes);
