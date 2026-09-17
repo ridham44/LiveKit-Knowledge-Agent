@@ -34,9 +34,13 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
-body {
+html, body {
   margin: 0;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Safety net for mobile/tablet: nothing on any page is meant to cause horizontal
+     scroll, so this only guards against an accidental overflow rather than hiding an
+     intentional one - it has no effect on a layout that already fits. */
+  overflow-x: hidden;
 }
 
 #root {

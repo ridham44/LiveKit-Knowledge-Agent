@@ -53,11 +53,11 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-8">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
       <div className="max-w-3xl mx-auto">
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50 mb-4">Upload Documents</h3>
-          <label className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-8 text-center hover:border-blue-400 dark:hover:border-blue-500 transition cursor-pointer flex flex-col items-center gap-2 bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl">
+          <label className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-5 sm:p-8 text-center hover:border-blue-400 dark:hover:border-blue-500 transition cursor-pointer flex flex-col items-center gap-2 bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl">
             <FileUp size={28} className="text-gray-400 dark:text-gray-500" />
             <p className="text-gray-600 dark:text-gray-300">Drag files here or click to browse</p>
             <p className="text-sm text-gray-500 dark:text-gray-400">Supported: PDF, DOCX, TXT</p>
@@ -108,7 +108,7 @@ export default function KnowledgeBasePage() {
                   </div>
                   <button
                     onClick={() => handleDeleteFile(file._id)}
-                    className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition shrink-0 ml-3"
+                    className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition shrink-0 ml-1 p-2"
                     title="Delete"
                   >
                     <Trash2 size={17} />

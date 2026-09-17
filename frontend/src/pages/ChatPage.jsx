@@ -2,6 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import {
   CornerDownLeft,
   FileText,
+  Menu,
   Mic,
   Paperclip,
   Plus,
@@ -9,6 +10,7 @@ import {
   Send,
   Shield,
   Trash2,
+  X,
 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import Logo from '../components/Logo';
@@ -53,6 +55,9 @@ export default function ChatPage() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [error, setError] = useState('');
   const [listening, setListening] = useState(false);
+  // Mobile/tablet only - the conversations panel is a normal, always-visible column
+  // from md upward, so this has no effect on desktop layout at all.
+  const [conversationsOpen, setConversationsOpen] = useState(false);
 
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -85,9 +90,11 @@ export default function ChatPage() {
     setCurrentConversationId(null);
     setMessages([]);
     setError('');
+    setConversationsOpen(false);
   };
 
   const handleSelectConversation = async (id) => {
+    setConversationsOpen(false);
     if (id === currentConversationId) return;
     setError('');
     try {
@@ -263,18 +270,42 @@ export default function ChatPage() {
   );
 
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className="flex-1 flex overflow-hidden relative">
+      {/* Backdrop - mobile/tablet only, closes the drawer on outside tap. The panel
+          is a normal, always-visible column from md upward, so this never renders
+          there. */}
+      {conversationsOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => setConversationsOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* Conversations panel */}
-      <div className="w-80 shrink-0 border-r border-gray-100 dark:border-gray-800/60 flex flex-col bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl">
-        <div className="p-4 flex items-center justify-between">
+      <div
+        className={`w-80 max-w-[85vw] shrink-0 border-r border-gray-100 dark:border-gray-800/60 flex flex-col bg-white/60 dark:bg-gray-900/50 backdrop-blur-xl fixed inset-y-0 left-0 z-30 transition-transform duration-200 ease-in-out ${
+          conversationsOpen ? 'translate-x-0' : '-translate-x-full'
+        } md:static md:translate-x-0 md:z-auto`}
+      >
+        <div className="p-4 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold text-gray-900 dark:text-gray-50">Conversations</h3>
-          <button
-            onClick={handleNewChat}
-            className="brand-gradient flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-sm font-medium transition hover:brightness-95 active:brightness-90"
-          >
-            <Plus size={16} />
-            New Chat
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={handleNewChat}
+              className="brand-gradient flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-sm font-medium transition hover:brightness-95 active:brightness-90"
+            >
+              <Plus size={16} />
+              New Chat
+            </button>
+            <button
+              onClick={() => setConversationsOpen(false)}
+              aria-label="Close conversations"
+              className="md:hidden shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="px-4 pb-3">
@@ -333,10 +364,22 @@ export default function ChatPage() {
       </div>
 
       {/* Chat panel */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Mobile/tablet only - opens the conversations drawer above. */}
+        <div className="md:hidden flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-800/60 shrink-0">
+          <button
+            onClick={() => setConversationsOpen(true)}
+            aria-label="Open conversations"
+            className="p-1.5 -ml-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition"
+          >
+            <Menu size={18} />
+          </button>
+          <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Conversations</span>
+        </div>
+
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center px-8 text-center">
+            <div className="h-full flex flex-col items-center justify-center px-4 sm:px-8 text-center">
               <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-white/90 flex items-center justify-center mb-6">
                 <Logo className="h-11" />
               </div>
@@ -359,7 +402,7 @@ export default function ChatPage() {
               </div>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto px-6 py-6 space-y-4">
+            <div className="max-w-3xl mx-auto px-3 sm:px-6 py-6 space-y-4">
               {messages.map(msg => (
                 <div key={msg.id}>
                   <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -398,11 +441,12 @@ export default function ChatPage() {
           )}
         </div>
 
-        <div className="px-8 pb-6 pt-2">
+        <div className="px-3 sm:px-8 pb-4 sm:pb-6 pt-2">
           {messages.length === 0 && (
             <p className="text-center text-xs text-gray-400 dark:text-gray-500 mb-2 flex items-center justify-center gap-1.5 italic">
               <CornerDownLeft size={12} />
-              Start by typing a question or use the microphone
+              <span className="hidden sm:inline">Start by typing a question or use the microphone</span>
+              <span className="sm:hidden">Type a question or use the microphone</span>
             </p>
           )}
 
@@ -412,13 +456,13 @@ export default function ChatPage() {
             </div>
           )}
 
-          <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto flex items-center gap-2">
+          <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto flex items-center gap-1.5 sm:gap-2">
             <input ref={fileInputRef} type="file" onChange={handleFileSelected} className="hidden" />
             <button
               type="button"
               onClick={handleAttachClick}
               title="Attach a document to your Knowledge Base"
-              className="p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60 hover:bg-white/90 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300 transition"
+              className="p-3 sm:p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60 hover:bg-white/90 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300 transition shrink-0"
             >
               <Paperclip size={18} />
             </button>
@@ -428,13 +472,13 @@ export default function ChatPage() {
               onChange={handleInputChange}
               placeholder="Ask a question..."
               disabled={loading}
-              className="flex-1 px-4 py-2.5 rounded-lg border border-white/60 dark:border-gray-700/60 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="flex-1 min-w-0 px-3 sm:px-4 py-2.5 rounded-lg border border-white/60 dark:border-gray-700/60 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             />
             <button
               type="button"
               onClick={handleMicClick}
               title={listening ? 'Stop dictation' : 'Speak your question'}
-              className={`p-2.5 rounded-lg transition ${
+              className={`p-3 sm:p-2.5 rounded-lg transition shrink-0 ${
                 listening
                   ? 'bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400 animate-pulse'
                   : 'bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60 hover:bg-white/90 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300'
@@ -445,10 +489,10 @@ export default function ChatPage() {
             <button
               type="submit"
               disabled={loading || !input.trim()}
-              className="ai-gradient flex items-center gap-2 px-5 py-2.5 rounded-lg text-white text-sm font-medium transition hover:brightness-95 active:brightness-90 disabled:opacity-50"
+              className="ai-gradient flex items-center gap-2 px-3.5 sm:px-5 py-3 sm:py-2.5 rounded-lg text-white text-sm font-medium transition hover:brightness-95 active:brightness-90 disabled:opacity-50 shrink-0"
             >
               <Send size={16} />
-              Send
+              <span className="hidden sm:inline">Send</span>
             </button>
           </form>
         </div>

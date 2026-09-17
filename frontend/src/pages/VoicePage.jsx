@@ -448,12 +448,12 @@ export default function VoicePage() {
   const active = status === 'listening' || status === 'speaking';
 
   return (
-    <div className="flex-1 flex flex-col items-center px-8 py-10 overflow-y-auto relative">
+    <div className="flex-1 flex flex-col items-center px-4 sm:px-8 py-6 sm:py-10 overflow-y-auto relative">
       <button
         type="button"
         onClick={() => setSettingsOpen((o) => !o)}
         title="Voice settings"
-        className="absolute top-4 right-8 p-2 rounded-lg bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60 hover:bg-white/90 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300 transition"
+        className="absolute top-3 right-3 sm:top-4 sm:right-8 p-2 rounded-lg bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/60 dark:border-gray-700/60 hover:bg-white/90 dark:hover:bg-gray-700/70 text-gray-600 dark:text-gray-300 transition"
       >
         <Settings size={18} />
       </button>
@@ -584,7 +584,7 @@ function SettingsPanel({ settings, onChange, onClose }) {
   }
 
   return (
-    <div className="absolute top-16 right-8 z-20 w-80 rounded-2xl border border-white/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl shadow-xl overflow-hidden">
+    <div className="absolute top-14 left-3 right-3 sm:left-auto sm:top-16 sm:right-8 z-20 w-auto sm:w-80 rounded-2xl border border-white/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl shadow-xl overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100 dark:border-gray-800">
         <div className="flex items-center gap-2">
           <div className="ai-gradient w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0">
