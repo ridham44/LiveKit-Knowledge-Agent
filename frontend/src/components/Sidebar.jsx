@@ -5,8 +5,8 @@ import Logo from './Logo';
 
 const NAV_ITEMS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'knowledge', label: 'Knowledge Base', icon: FileText },
   { id: 'voice', label: 'Voice', icon: Mic },
+  { id: 'knowledge', label: 'Knowledge Base', icon: FileText },
 ];
 
 function initials(name) {
