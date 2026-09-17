@@ -12,7 +12,7 @@ Most of what people need to know is buried in documents — policy PDFs, handboo
 
 ## How a user uses it
 
-1. **Sign up** and log in with an email and password.
+1. **Sign up** with an email and password, verify your email with a one-time code sent to your inbox, then log in. Forgot your password? Reset it the same way — a code to your email, then a new password.
 2. **Upload documents** — PDF, DOCX, or TXT — to your personal Knowledge Base.
 3. **Ask questions**, either by typing in the Chat tab or speaking in the Voice tab.
 4. **Get an answer** grounded in your own documents, with the source cited.
@@ -24,7 +24,7 @@ Most of what people need to know is buried in documents — policy PDFs, handboo
 - **Chat** — ask questions in plain English and get answers with cited sources; every conversation is saved, searchable, and can be revisited or deleted.
 - **Voice** — tap the microphone, ask your question out loud, watch it transcribed live, and hear the answer spoken back.
 - **Voice dictation in Chat** — dictate a typed message instead of typing it, right from the chat box.
-- **Accounts & privacy** — every user has their own private account; your documents, conversations, and history are never visible to anyone else.
+- **Accounts & privacy** — every user has their own private account, protected by an email-verification code at signup and a code-based password reset; your documents, conversations, and history are never visible to anyone else.
 - **Light/dark theme** and a clean, responsive interface that works on desktop, tablet, and phone.
 
 ## How the Knowledge Base works
@@ -79,7 +79,8 @@ The rest of this document covers how the project is built, how to run it locally
 | Voice transport | LiveKit (used by the separately-hosted voice worker — see [Architecture](#architecture)) |
 | Speech-to-text | AssemblyAI (voice worker) / the browser's own speech recognition (Chat dictation, Voice page) |
 | Text-to-speech | Deepgram Aura |
-| Auth | JWT + bcrypt |
+| Auth | JWT + bcrypt, with email OTP verification for signup and password reset |
+| Transactional email | Brevo (transactional email HTTP API) |
 
 ### Architecture
 
@@ -176,8 +177,8 @@ See [`voice-agent/README.md`](voice-agent/README.md) for details and troubleshoo
 | `MAX_FILE_SIZE` | No | Defaults to 4MB (see [Known limitations](#known-limitations)) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Yes | Same LiveKit Cloud project used by `voice-agent` |
 | `DEEPGRAM_API_KEY` | Yes | Powers the Voice page's text-to-speech |
-| `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, `BREVO_FROM_NAME` | Yes | Sends the signup email-verification OTP via Brevo's transactional email API — see `backend/.env.example` |
-| `AGENT_SHARED_SECRET` | Yes | Must match the same value in `voice-agent/.env` |
+| `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, `BREVO_FROM_NAME` | Yes | Sends the signup and password-reset email OTPs via Brevo's transactional email API — see `backend/.env.example` |
+| `AGENT_SHARED_SECRET` | Yes | Must match the same value in `voice-agent/.env`; also guards the internal audit-log endpoint (see `API_REFERENCE.md`) |
 | `APP_URL` / `CORS_ORIGINS` | No | Only needed for a custom domain — see `backend/.env.example` |
 
 **`frontend/.env`** — nothing required; the frontend always calls the API same-origin.

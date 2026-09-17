@@ -8,17 +8,28 @@
 All routes below are shown relative to that base, e.g. `/api/auth/signup`.
 
 ## Authentication
-All endpoints except signup/login require JWT token in header:
+Endpoints below marked "Requires authentication" need a JWT token in the header:
 ```
 Authorization: Bearer <token>
 ```
+Signup, login, and the forgot-password/reset-password endpoints don't require one - signup and
+password reset instead go through an email OTP (see below).
 
 ---
 
 ## Authentication Endpoints
 
+Signup is two steps - `POST /api/auth/signup` only emails a code and does **not** create the
+account; the account is created by `POST /api/auth/signup/verify` once that code checks out.
+Password reset follows the same three-step shape (request code → verify code → set new password).
+
+Every OTP in this flow: 6 digits, expires in 5 minutes, max 5 resends with a 30-second cooldown
+between them (a resend invalidates the previous code), and verification is capped at 5 wrong
+attempts before that code is locked out (a resend clears the lock).
+
 ### POST /api/auth/signup
-Create new user account.
+Step 1 of signup. Validates the form and emails a 6-digit verification code - **does not create
+the account yet**.
 
 **Request:**
 ```json
@@ -30,6 +41,43 @@ Create new user account.
   "companyName": "Acme Corp"
 }
 ```
+
+**Response (200):**
+```json
+{
+  "message": "OTP email accepted by mail provider",
+  "email": "john@example.com",
+  "otpExpiresInSeconds": 300,
+  "resendCooldownSeconds": 30,
+  "resendsRemaining": 5
+}
+```
+"Accepted by mail provider" means Brevo queued the email for delivery, not that it has reached
+the inbox yet.
+
+**Error Response (400):** `{"error": "Email already registered"}` - also returned if the email
+is invalid or the password doesn't meet policy (8+ characters, upper/lowercase, a number).
+
+---
+
+### POST /api/auth/signup/resend
+Requests a new code for an in-progress signup, invalidating the previous one.
+
+**Request:** `{"email": "john@example.com"}`
+
+**Response (200):** same shape as `POST /api/auth/signup`.
+
+**Error Responses:**
+- `404` `{"error": "...", "code": "SESSION_NOT_FOUND"}` - no signup in progress for this email
+- `429` `{"error": "...", "code": "RESEND_COOLDOWN", "retryAfterSeconds": 17}` - too soon since the last send
+- `429` `{"error": "...", "code": "RESEND_LIMIT"}` - 5 resends already used for this session
+
+---
+
+### POST /api/auth/signup/verify
+Step 2 of signup. Verifies the code and, only now, creates the account.
+
+**Request:** `{"email": "john@example.com", "otp": "123456"}`
 
 **Response (201):**
 ```json
@@ -45,6 +93,70 @@ Create new user account.
   }
 }
 ```
+
+**Error Responses:**
+- `404` `code: "SESSION_NOT_FOUND"` - no signup in progress (or it fully expired)
+- `400` `code: "OTP_EXPIRED"` - request a new code via `/signup/resend`
+- `400` `code: "OTP_INVALID"`, plus `"attemptsRemaining"` - wrong code
+- `429` `code: "OTP_LOCKED"` - 5 wrong attempts against this code; resend to get a fresh one
+
+---
+
+### POST /api/auth/forgot-password
+Step 1 of password reset. Emails a 6-digit code to an *existing* account's email.
+
+**Request:** `{"email": "john@example.com"}`
+
+**Response (200):** same shape as `POST /api/auth/signup`.
+
+**Error Response (404):** `{"error": "No account found with this email"}`
+
+---
+
+### POST /api/auth/forgot-password/resend
+Same behavior and response/error shapes as `POST /api/auth/signup/resend`, against the password-reset session instead.
+
+---
+
+### POST /api/auth/forgot-password/verify
+Step 2 of password reset. Verifies the code and issues a short-lived reset token (10 minutes) -
+the password itself isn't changed yet.
+
+**Request:** `{"email": "john@example.com", "otp": "123456"}`
+
+**Response (200):**
+```json
+{
+  "email": "john@example.com",
+  "resetToken": "45f4754a6d27b5488ab47529cd885cc...",
+  "resetTokenExpiresInSeconds": 600
+}
+```
+
+**Error Responses:** same `SESSION_NOT_FOUND` / `OTP_EXPIRED` / `OTP_INVALID` / `OTP_LOCKED` shapes as `POST /api/auth/signup/verify`.
+
+---
+
+### POST /api/auth/reset-password
+Step 3 of password reset. Consumes the reset token from the previous step, sets the new
+password, and logs the user in immediately (same response shape as login).
+
+**Request:**
+```json
+{
+  "email": "john@example.com",
+  "resetToken": "45f4754a6d27b5488ab47529cd885cc...",
+  "newPassword": "new_secure_password"
+}
+```
+
+**Response (200):** same `{ token, user }` shape as `POST /api/auth/login`.
+
+**Error Responses:**
+- `404` `code: "SESSION_NOT_FOUND"` - no verified reset session for this email
+- `400` `code: "RESET_TOKEN_EXPIRED"` - the 10-minute window passed; verify the OTP again
+- `400` `code: "RESET_TOKEN_INVALID"` - token doesn't match
+- `400` `{"error": "Password must be at least 8 characters"}` (or similar) - policy violation
 
 ---
 
@@ -87,6 +199,15 @@ Get current user profile. Requires authentication.
   "createdAt": "2026-09-16T12:00:00Z"
 }
 ```
+
+---
+
+### POST /api/auth/logout
+Always returns `200` regardless of whether a token is sent - there's no server-side session to
+invalidate (the client just discards its stored JWT). If a valid `Authorization` header is sent,
+the logout event is recorded against that identity; if not, it's still recorded, just without one.
+
+**Response (200):** `{"message": "Logged out"}`
 
 ---
 
@@ -432,6 +553,51 @@ Streamed version of the above — same newline-delimited JSON shape as `POST /ap
 
 ---
 
+### GET /api/internal/audit-logs
+Queries the operational audit trail for signup/OTP/password-reset/login/logout events (written by
+the backend's `otpLogger.js` alongside its console output) — meant for inspecting what actually
+happened in production without needing platform log access. Never contains OTPs, passwords, or
+secrets. Entries auto-expire after 30 days. Same `X-Internal-Secret` header requirement as the
+voice-agent endpoints above.
+
+**Query parameters** (all optional): `email`, `event` (e.g. `sent`, `verify_failed`,
+`login_success`), `scope` (`otp` | `auth` | `password_reset`), `level` (`info` | `warn` | `error`),
+`since` (ISO date), `limit` (default 50, max 200).
+
+```bash
+curl "https://your-app.vercel.app/api/internal/audit-logs?email=john@example.com&limit=20" \
+  -H "X-Internal-Secret: $AGENT_SHARED_SECRET"
+```
+
+**Response (200):**
+```json
+{
+  "count": 2,
+  "logs": [
+    {
+      "_id": "...",
+      "scope": "otp",
+      "event": "sent",
+      "email": "john@example.com",
+      "level": "info",
+      "meta": { "provider": "brevo", "success": true, "httpStatus": 201, "messageId": "..." },
+      "createdAt": "2026-09-17T09:35:22.814Z"
+    },
+    {
+      "_id": "...",
+      "scope": "auth",
+      "event": "login_success",
+      "email": "john@example.com",
+      "level": "info",
+      "meta": { "userId": "507f1f77bcf86cd799439010" },
+      "createdAt": "2026-09-17T09:35:48.966Z"
+    }
+  ]
+}
+```
+
+---
+
 ## Health Check
 
 ### GET /health
@@ -483,7 +649,7 @@ Unauthenticated, no database round-trip. Returns `{"status":"ok"}` (the `/api/he
 
 ### Using cURL
 
-**Signup**
+**Signup** (step 1 — emails a code, doesn't create the account; see `POST /api/auth/signup/verify` above to finish)
 ```bash
 curl -X POST http://localhost:5000/api/auth/signup \
   -H "Content-Type: application/json" \
@@ -528,16 +694,14 @@ curl -X POST http://localhost:5000/api/chat \
 ### Using JavaScript (Fetch)
 
 ```javascript
-// Signup
-const response = await fetch('http://localhost:5000/api/auth/signup', {
+// Login (an already-verified account - see /api/auth/signup + /api/auth/signup/verify
+// above for new-account signup, which requires the emailed OTP step in between)
+const response = await fetch('http://localhost:5000/api/auth/login', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    name: 'John Doe',
     email: 'john@example.com',
-    password: 'password123',
-    gender: 'male',
-    companyName: 'Acme'
+    password: 'password123'
   })
 });
 const data = await response.json();
@@ -567,15 +731,13 @@ import requests
 
 BASE_URL = "http://localhost:5000"
 
-# Signup
-signup_response = requests.post(f"{BASE_URL}/api/auth/signup", json={
-    "name": "John Doe",
+# Login (an already-verified account - see /api/auth/signup + /api/auth/signup/verify
+# above for new-account signup, which requires the emailed OTP step in between)
+login_response = requests.post(f"{BASE_URL}/api/auth/login", json={
     "email": "john@example.com",
-    "password": "password123",
-    "gender": "male",
-    "companyName": "Acme"
+    "password": "password123"
 })
-token = signup_response.json()["token"]
+token = login_response.json()["token"]
 
 # Send Chat Message
 headers = {"Authorization": f"Bearer {token}"}

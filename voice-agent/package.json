@@ -8,8 +8,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "dev": "node agent.js dev",
-    "start": "node agent.js start"
+    "dev": "node init && node agent.js dev",
+    "start": "node init && node agent.js start"
   },
   "dependencies": {
     "@livekit/agents": "^1.9.0",
