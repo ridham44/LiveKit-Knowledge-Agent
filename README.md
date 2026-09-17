@@ -12,7 +12,7 @@ Deploys as **one Vercel project**: the React frontend and the Express API (as Ve
 - **Conversation history** — searchable list of past conversations, resume any of them, delete one or all
 - **Voice chat** — speak your question, watch it appear as text as you talk, and hear the answer spoken back, with a live transcript and a settings panel for assistant voice / speaking speed / volume
 - **Voice dictation in text chat** — dictate a chat message with the browser's speech recognition instead of typing
-- **Light/dark theme**, gradient brand accents, and a glassmorphism UI, fully responsive on the auth screens
+- **Light/dark theme**, gradient brand accents, and a glassmorphism UI, fully responsive from 320px mobile through tablet to desktop — sidebar and conversation list become off-canvas drawers below the `md` breakpoint (768px), reverting to the original always-visible columns above it
 - **Multi-tenant isolation** — every query, file, and conversation is scoped to its owner
 
 > **Note on navigation:** the app is a single-page tab switcher (Chat / Knowledge Base / Voice), not URL-based routing — there's no React Router and no distinct `/chat`, `/knowledge-base`, `/voice`, `/profile` URLs today, everything lives at `/`. A catch-all SPA rewrite is still configured (see `vercel.json`) so any direct URL loads the app shell correctly rather than 404ing, but it won't auto-select a tab from the URL. There's also no Profile *page* in the UI yet, even though the backend has `/api/users/profile` — see [Known limitations](#known-limitations).
@@ -53,6 +53,8 @@ This is the standard "Express on Vercel" adapter pattern: Vercel's Node.js runti
 
 `backend/src/server.js` is kept as a separate, thin entry point purely for local development (and any traditional/long-lived hosting, if you ever want it) — it imports the same `app.js` and adds `.listen()` plus process-lifecycle signal handling that would be actively harmful inside a serverless invocation (see the comments in that file).
 
+**MongoDB connection readiness:** every DB-touching route sits behind a middleware that explicitly `await`s `connectDB()` (`backend/src/db.js`) before proceeding, rather than relying solely on Mongoose's own command buffering. On a cold start the connection itself (DNS + TLS + Atlas handshake) can occasionally take close to Mongoose's default 10s buffering timeout — losing that race is what caused a real production error (`Operation conversations.insertOne() buffering timed out after 10000ms`) with no useful detail attached. The explicit await turns that into either an instant pass-through (already connected, the common case on a warm invocation) or one clear `503`. `/health` and `/api/health` are registered *before* this gate, so they still answer even if MongoDB itself is unreachable.
+
 ## File upload & processing
 
 Vercel Functions have no persistent/writable project filesystem — only a small ephemeral `/tmp` that's wiped between cold starts — and a serverless function isn't guaranteed to keep running after it responds, so the original design (write to `./uploads`, respond immediately with `status: 'pending'`, extract/chunk/embed in the background) can't work reliably there. The upload flow changed to:
@@ -92,6 +94,20 @@ The original embedding step ran **locally, in-process**: `@huggingface/transform
 **What stayed the same:** the RAG architecture is unchanged. `retrievalService.js`'s cosine-similarity ranking and keyword-overlap scoring are dimension-agnostic and needed zero changes — they work the same way regardless of which model produced the vectors. The chunking strategy, the "full context under 20 chunks" retrieval behavior, the LLM call, and the streaming response format are all untouched.
 
 **Not preserved across this migration:** vectors from the old local model and the new remote model are not comparable (different model, different geometry). This only matters if you already had production data under the old model — there was none at the time of this migration, so no re-embedding step was needed. If you ever change `EMBEDDING_MODEL` later, existing `DocumentChunk` embeddings would need to be regenerated (re-upload the affected files) before search quality is reliable again.
+
+## PDF text extraction on Vercel
+
+Uploading a PDF originally worked locally and failed in production with `PDF extraction failed: DOMMatrix is not defined` — a second Vercel-specific compatibility issue, unrelated to embeddings, worth documenting since it wasn't obvious from local testing.
+
+**What was happening:** extraction used the `pdf-parse` package (v2), which wraps `pdfjs-dist` and optionally `@napi-rs/canvas` (a native binary). It turns out `pdf-parse`'s `getText()` doesn't do *plain* text-layer extraction — it also exercises `pdfjs-dist`'s canvas-based page-rendering/glyph-painting code internally (`paintChar`, `Path2D`, `DOMMatrix.invertSelf`/`multiplySelf`), which needs a working 2D canvas implementation. That native canvas binding doesn't provide a working `DOMMatrix` on Vercel's runtime — a known class of problem for native canvas/graphics bindings on Lambda-like serverless runtimes (a missing shared library, or the platform-specific binary not surviving the function's dependency bundling).
+
+**Fix, in two parts** (`backend/src/services/documents/pdfService.js`):
+1. **Bypass `pdf-parse`'s wrapper entirely** and call `pdfjs-dist` directly via `getDocument()` + `page.getTextContent()` — the standard, canvas-free way most Node.js tooling extracts PDF text; it walks the content stream's text-showing operators directly and never touches rendering. `pdfjs-dist` still *optionally* tries to load `@napi-rs/canvas` at import time (for page-rendering features this code never calls) but degrades gracefully with a warning if that fails, rather than throwing.
+2. That alone wasn't sufficient: `pdfjs-dist` still has a module-level `const SCALE_MATRIX = new DOMMatrix();` that runs unconditionally at import time, plus a few reachable code paths call `.translate()`/`.scale()`/`.invertSelf()`/`.multiplySelf()`/`.preMultiplySelf()` on `DOMMatrix` instances even during plain text extraction. `backend/src/services/documents/pdfCanvasPolyfills.js` provides a small, spec-correct pure-JS 2D affine `DOMMatrix` implementation covering exactly those methods (verified against `pdfjs-dist`'s own bundled matrix-multiply formula), installed only if nothing has already provided a working one — so normal local dev (where `@napi-rs/canvas` loads fine) is unaffected.
+
+**A third, separate issue** surfaced once the above was fixed: `Cannot find module '.../pdf.worker.mjs'`. `pdfjs-dist` loads its worker via `await import(this.workerSrc)`, where `workerSrc` is a runtime string, not a static import specifier — Vercel's function bundler (`@vercel/nft`) only includes files it can trace through *static* `require()`/`import()` calls, so this dynamic import is invisible to it and the worker file silently didn't make it into the deployed bundle, even though it exists in `node_modules` at build time. Fixed by calling `require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')` before it's needed — a literal string argument the bundler's static analysis *does* recognize and trace, forcing the file's inclusion — and pointing `GlobalWorkerOptions.workerSrc` at that resolved path (converted to a `file://` URL via `pathToFileURL`, since Node's ESM dynamic import rejects a bare Windows-style absolute path, which matters for local dev on Windows).
+
+**Net dependency change:** `pdf-parse` (which pulled in `@napi-rs/canvas`, a native binary) was replaced with `pdfjs-dist` directly, used in a canvas-free way. `@napi-rs/canvas` remains an *optional* dependency of `pdfjs-dist` itself — it may still appear in `node_modules` locally, but nothing in this codebase requires it, so it should never be traced into the deployed function bundle.
 
 ## Voice agent worker
 
@@ -240,9 +256,11 @@ AGENT_SHARED_SECRET=<same value as backend/.env>
 
 ## CORS
 
-Frontend and API are served from the same Vercel deployment, so production API calls from the browser are same-origin and don't strictly need CORS at all. `backend/src/config/cors.js` still configures it (for local dev, where Vite's dev server and the backend run on different ports) and auto-trusts:
-- `http://localhost:5173` (Vite's default dev port)
-- The current deployment's own URL, via Vercel's auto-populated `VERCEL_URL` / `VERCEL_PROJECT_PRODUCTION_URL` env vars — **no configuration needed**, including for preview deployments
+Frontend and API are served from the same Vercel deployment, so production API calls from the browser are same-origin and don't strictly need CORS at all. `backend/src/config/cors.js` is a small custom middleware (not the `cors` npm package) whose **primary check is genuine same-origin**: does the request's `Origin` header match the host it was actually sent to (`req.headers.host` / `x-forwarded-host`)? That works automatically for the production domain, every preview deployment, and any custom domain, with zero configuration.
+
+An earlier version instead relied on a *static allowlist* built from Vercel's auto-populated `VERCEL_URL`/`VERCEL_PROJECT_PRODUCTION_URL` env vars as the primary mechanism. That was changed after it caused a real production incident: a CORS rejection is invisible to server-side `try/catch` (the browser blocks the response client-side before the app ever sees a problem), so making login/signup depend on an env var being populated under an exact expected name was a fragile, hard-to-diagnose failure mode — it manifested as signup/login silently failing with a generic network error and no server-side clue why. The static list still exists as a secondary check (mainly for local dev, where Vite's dev server and the backend genuinely are on different origins), and covers:
+- `http://localhost:5173` (Vite's default dev port, or `FRONTEND_DEV_URL` if set)
+- `VERCEL_URL` / `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_BRANCH_URL`, if set (no configuration needed — Vercel populates these automatically)
 - Anything listed in `CORS_ORIGINS` (comma-separated), for a custom domain
 
 The old `FRONTEND_URL=http://localhost:5173` single-origin config is gone — it would have been wrong for production (and was explicitly a dev-only value even in the original setup).
@@ -300,6 +318,7 @@ None of these were introduced by the Vercel restructuring; they're called out he
 - The voice agent never sees a user's JWT; it authenticates to the API's internal endpoint with a separate shared secret, and learns *which* user it's serving from LiveKit room metadata, not the caller
 - File upload type/size validation
 - CORS restricted to an explicit allowlist (see [CORS](#cors)) — same-origin in production by default, with no origin wildcard
+- `JWT_SECRET` is validated *before* any database write in signup/login (not just before signing the token) — otherwise a misconfigured secret could leave an orphaned user record in MongoDB with no token ever returned to the client and no way to retry (the email reads as already registered)
 
 ## License
 
