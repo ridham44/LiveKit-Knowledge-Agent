@@ -22,6 +22,10 @@ router.use(async (req, res, next) => {
 router.post('/signup', authController.signup);
 router.post('/signup/resend', authController.resendSignupOtp);
 router.post('/signup/verify', authController.verifySignupOtp);
+router.post('/forgot-password', authController.forgotPassword);
+router.post('/forgot-password/resend', authController.resendPasswordResetOtp);
+router.post('/forgot-password/verify', authController.verifyPasswordResetOtp);
+router.post('/reset-password', authController.resetPassword);
 router.post('/login', authController.login);
 router.post('/logout', authController.logout);
 router.get('/me', authenticateToken, authController.getMe);

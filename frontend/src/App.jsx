@@ -3,6 +3,7 @@ import { AuthContext } from './context/AuthContext';
 
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
 import Dashboard from './pages/Dashboard';
 
 function App() {
@@ -52,8 +53,13 @@ function App() {
       {!user ? (
         currentPage === 'signup' ? (
           <Signup onSwitchPage={() => setCurrentPage('login')} />
+        ) : currentPage === 'forgot-password' ? (
+          <ForgotPassword onSwitchPage={() => setCurrentPage('login')} />
         ) : (
-          <Login onSwitchPage={() => setCurrentPage('signup')} />
+          <Login
+            onSwitchPage={() => setCurrentPage('signup')}
+            onForgotPassword={() => setCurrentPage('forgot-password')}
+          />
         )
       ) : (
         <Dashboard onLogout={logout} />

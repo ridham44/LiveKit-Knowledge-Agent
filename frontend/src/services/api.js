@@ -75,6 +75,27 @@ export const auth = {
     body: JSON.stringify({ email, password }),
   }),
   getMe: () => apiCall('/api/auth/me'),
+
+  // Step 1 of password reset: validates the account exists and emails a 6-digit OTP.
+  forgotPassword: (email) => apiCall('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }),
+  resendForgotPasswordOtp: (email) => apiCall('/api/auth/forgot-password/resend', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }),
+  // Step 2: verifies the OTP and returns a short-lived resetToken for resetPassword.
+  verifyForgotPasswordOtp: (email, otp) => apiCall('/api/auth/forgot-password/verify', {
+    method: 'POST',
+    body: JSON.stringify({ email, otp }),
+  }),
+  // Step 3: consumes the resetToken to set the new password. Returns the same
+  // { token, user } shape as login, so the caller can log the user in immediately.
+  resetPassword: (email, resetToken, newPassword) => apiCall('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, resetToken, newPassword }),
+  }),
 };
 
 export const files = {

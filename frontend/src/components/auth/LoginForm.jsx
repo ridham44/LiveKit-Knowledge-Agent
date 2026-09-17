@@ -7,7 +7,7 @@ import PasswordInput from './PasswordInput';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function LoginForm({ onSwitchPage }) {
+export default function LoginForm({ onSwitchPage, onForgotPassword }) {
   const { login } = useContext(AuthContext);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,7 +15,6 @@ export default function LoginForm({ onSwitchPage }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showForgotNotice, setShowForgotNotice] = useState(false);
 
   const validate = () => {
     const errors = {};
@@ -91,18 +90,12 @@ export default function LoginForm({ onSwitchPage }) {
           </label>
           <button
             type="button"
-            onClick={() => setShowForgotNotice(true)}
+            onClick={onForgotPassword}
             className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
           >
             Forgot password?
           </button>
         </div>
-
-        {showForgotNotice && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
-            Password reset isn't available yet — please contact support for help.
-          </p>
-        )}
 
         <button
           type="submit"

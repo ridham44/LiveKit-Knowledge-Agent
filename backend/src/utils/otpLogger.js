@@ -43,4 +43,8 @@ function logAuthEvent(event, email, extra = {}, level = 'info') {
   return logEvent('auth', event, email, extra, level);
 }
 
-module.exports = { logOtpEvent, logAuthEvent };
+function logPasswordResetEvent(event, email, extra = {}, level = 'info') {
+  return logEvent('password_reset', event, email, extra, level);
+}
+
+module.exports = { logOtpEvent, logAuthEvent, logPasswordResetEvent };

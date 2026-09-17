@@ -17,7 +17,25 @@ function getBrevoConfig() {
   };
 }
 
-function otpEmailHtml(otp, expiryMinutes) {
+// Copy differs by why the OTP was sent - the HTML/text shell (branding, digit
+// boxes, footer) is identical either way.
+const PURPOSE_COPY = {
+  signup: {
+    subject: 'Your Work24 verification code',
+    heading: 'Verify your email',
+    intro: 'Use the verification code below to finish creating your Work24 account. Enter it on the signup screen to continue.',
+    disclaimer: "If you didn't request this code, you can safely ignore this email - no account will be created without it.",
+  },
+  password_reset: {
+    subject: 'Your Work24 password reset code',
+    heading: 'Reset your password',
+    intro: 'Use the verification code below to reset your Work24 account password. Enter it on the password reset screen to continue.',
+    disclaimer: "If you didn't request this code, you can safely ignore this email - your password will not be changed without it.",
+  },
+};
+
+function otpEmailHtml(otp, expiryMinutes, purpose = 'signup') {
+  const copy = PURPOSE_COPY[purpose] || PURPOSE_COPY.signup;
   const digits = otp
     .split('')
     .map(
@@ -40,9 +58,9 @@ function otpEmailHtml(otp, expiryMinutes) {
             </tr>
             <tr>
               <td style="padding:32px;">
-                <h1 style="margin:0 0 12px;font-size:19px;color:#111827;">Verify your email</h1>
+                <h1 style="margin:0 0 12px;font-size:19px;color:#111827;">${copy.heading}</h1>
                 <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#4b5563;">
-                  Use the verification code below to finish creating your Work24 account. Enter it on the signup screen to continue.
+                  ${copy.intro}
                 </p>
                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
                   <tr>${digits}</tr>
@@ -51,7 +69,7 @@ function otpEmailHtml(otp, expiryMinutes) {
                   This code expires in <strong>${expiryMinutes} minutes</strong>.
                 </p>
                 <p style="margin:24px 0 0;padding-top:20px;border-top:1px solid #eef0f4;font-size:12px;line-height:1.6;color:#9ca3af;">
-                  If you didn't request this code, you can safely ignore this email - no account will be created without it. Never share this code with anyone, including anyone claiming to be from Work24.
+                  ${copy.disclaimer} Never share this code with anyone, including anyone claiming to be from Work24.
                 </p>
               </td>
             </tr>
@@ -64,15 +82,16 @@ function otpEmailHtml(otp, expiryMinutes) {
 </html>`;
 }
 
-function otpEmailText(otp, expiryMinutes) {
+function otpEmailText(otp, expiryMinutes, purpose = 'signup') {
+  const copy = PURPOSE_COPY[purpose] || PURPOSE_COPY.signup;
   return [
-    'Work24 - Verify your email',
+    `Work24 - ${copy.heading}`,
     '',
     `Your verification code is: ${otp}`,
     '',
     `This code expires in ${expiryMinutes} minutes.`,
     '',
-    "If you didn't request this code, you can safely ignore this email - no account will be created without it.",
+    copy.disclaimer,
     'Never share this code with anyone, including anyone claiming to be from Work24.',
   ].join('\n');
 }
@@ -85,9 +104,10 @@ function otpEmailText(otp, expiryMinutes) {
 // A 201 here only means Brevo accepted the message for delivery - it is NOT
 // confirmation of inbox delivery, which is why authController logs this alongside
 // the "sent" event rather than treating it as "delivered".
-async function sendOtpEmail(email, otp) {
+async function sendOtpEmail(email, otp, purpose = 'signup') {
   const expiryMinutes = 5;
   const { apiKey, fromEmail, fromName } = getBrevoConfig();
+  const copy = PURPOSE_COPY[purpose] || PURPOSE_COPY.signup;
 
   try {
     const response = await axios.post(
@@ -95,9 +115,9 @@ async function sendOtpEmail(email, otp) {
       {
         sender: { name: fromName, email: fromEmail },
         to: [{ email }],
-        subject: 'Your Work24 verification code',
-        htmlContent: otpEmailHtml(otp, expiryMinutes),
-        textContent: otpEmailText(otp, expiryMinutes),
+        subject: copy.subject,
+        htmlContent: otpEmailHtml(otp, expiryMinutes, purpose),
+        textContent: otpEmailText(otp, expiryMinutes, purpose),
       },
       {
         headers: {
