@@ -9,9 +9,9 @@
   "scripts": {
     "install:all": "npm --prefix frontend install && npm --prefix backend install",
     "postinstall": "npm run install:all",
-    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
-    "build": "npm --prefix frontend run build",
-    "start": "npm --prefix backend run start",
+    "dev": "node init && concurrently -k -n backend,frontend -c blue,green \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "build": "node init && npm --prefix frontend run build",
+    "start": "node init && npm --prefix backend run start",
     "lint": "npm --prefix frontend run lint"
   },
   "devDependencies": {

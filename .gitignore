@@ -1,13 +1,10 @@
 node_modules/
-.env
-.env.*
 !.env.example
 dist/
 build/
 coverage/
 *.log
 .DS_Store
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -15,3 +12,4 @@ uploads/
 
 # Vercel CLI (project link metadata, local `vercel dev`/`vercel build` output)
 .vercel
+config.bat
