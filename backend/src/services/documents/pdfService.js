@@ -28,6 +28,25 @@ async function extractTextFromPDF(buffer) {
 
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
+  // pdfjs-dist loads its worker module via `await import(this.workerSrc)`, where
+  // workerSrc is a runtime string (not a static import specifier) - Vercel's function
+  // bundler (@vercel/nft) can only include files it can trace through *static*
+  // require()/import() calls, so a dynamic import like that is invisible to it and
+  // the worker file silently doesn't make it into the deployed bundle (confirmed in
+  // production: "Cannot find module '.../pdf.worker.mjs'" even though it exists in
+  // node_modules at build time). require.resolve() with a literal string argument
+  // (unlike the dynamic import above) IS something the bundler's static analysis
+  // recognizes and traces - using it here, purely for its side effect of forcing this
+  // file's inclusion, and pointing workerSrc at the resolved absolute path so the
+  // dynamic import above finds it at the same location the bundler placed it.
+  // pathToFileURL, not the raw resolved path: Node's ESM dynamic import() requires a
+  // file:// URL for absolute paths on Windows (a bare "D:\..." path errors with
+  // "Only URLs with a scheme in: file, data, and node are supported") - this works
+  // correctly on both Windows (local dev) and Linux (Vercel) either way.
+  pdfjsLib.GlobalWorkerOptions.workerSrc = require('url').pathToFileURL(
+    require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')
+  ).href;
+
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(buffer),
     // No worker thread in a serverless function invocation - run inline.
