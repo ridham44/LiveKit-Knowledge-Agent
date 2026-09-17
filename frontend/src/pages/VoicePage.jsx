@@ -468,7 +468,11 @@ export default function VoicePage() {
 
       <div className="flex flex-col items-center">
         <div className="relative flex items-center justify-center mb-6">
-          <WaveBars side="left" active={active} speaking={status === 'listening'} />
+          {status === 'listening' ? (
+            <ListeningWaveform side="left" />
+          ) : (
+            <WaveBars side="left" active={active} speaking={status === 'listening'} />
+          )}
 
           <button
             type="button"
@@ -479,20 +483,43 @@ export default function VoicePage() {
                 : connected
                 ? 'ai-gradient text-white'
                 : 'bg-violet-100 dark:bg-violet-500/15 text-violet-600 dark:text-violet-400'
-            } hover:opacity-90`}
+            } hover:opacity-90 ${status === 'listening' ? 'kv-orb-breathe' : ''}`}
+            style={
+              status === 'listening'
+                ? { boxShadow: '0 8px 30px -6px rgba(108,43,255,0.5), 0 0 46px -6px rgba(0,217,255,0.45)' }
+                : undefined
+            }
             title={connected ? 'End call' : 'Start voice chat'}
           >
-            {connected ? (
+            {status === 'listening' ? (
+              <Mic size={30} className="relative z-10" />
+            ) : connected ? (
               <PhoneOff size={30} />
             ) : (
               <Mic size={30} stroke={status === 'error' ? 'currentColor' : 'url(#ai-icon-gradient)'} />
             )}
-            {active && (
+
+            {/* Listening-only: two staggered expanding/fading rings, replacing the
+                plain ping ring below for this state specifically. Every other
+                connected state (thinking/speaking) keeps that original ring
+                untouched. */}
+            {status === 'listening' && (
+              <>
+                <span className="kv-ring pointer-events-none absolute inset-0 rounded-full border border-violet-300 dark:border-violet-400" />
+                <span className="kv-ring kv-ring-delay pointer-events-none absolute inset-0 rounded-full border border-cyan-300 dark:border-cyan-400" />
+              </>
+            )}
+
+            {active && status !== 'listening' && (
               <span className="absolute inset-0 rounded-full border-2 border-violet-400 dark:border-violet-500 animate-ping" />
             )}
           </button>
 
-          <WaveBars side="right" active={active} speaking={status === 'speaking'} />
+          {status === 'listening' ? (
+            <ListeningWaveform side="right" />
+          ) : (
+            <WaveBars side="right" active={active} speaking={status === 'speaking'} />
+          )}
         </div>
 
         <div
@@ -704,6 +731,90 @@ function SettingsPanel({ settings, onChange, onClose }) {
           {saved ? 'Saved' : 'Save Settings'}
         </button>
       </div>
+    </div>
+  );
+}
+
+// Flowing wave lines shown only while status === 'listening', replacing WaveBars for
+// that state specifically (WaveBars itself is untouched and still used exactly as
+// before for the speaking/thinking/idle states). A continuous animated line reads as
+// "hearing you" more clearly than static bars, and matches the intended listening
+// visual. Pure SVG + CSS - no animation library.
+//
+// The path is one gentle wave period repeated 4x across a viewBox twice as wide as
+// what's actually visible; translating the whole group left by exactly 25% of that
+// viewBox (one period) and looping is what makes it flow seamlessly with no visible
+// seam or reset.
+function ListeningWaveform({ side }) {
+  const mirror = side === 'right';
+  return (
+    <div
+      className={`relative h-10 w-16 sm:w-24 overflow-hidden ${mirror ? 'scale-x-[-1]' : ''}`}
+      style={{
+        WebkitMaskImage: 'linear-gradient(to right, transparent, black 30%, black 100%)',
+        maskImage: 'linear-gradient(to right, transparent, black 30%, black 100%)',
+      }}
+      aria-hidden="true"
+    >
+      <svg
+        viewBox="0 0 160 40"
+        preserveAspectRatio="none"
+        className="kv-wave-flow absolute inset-y-0 left-0 h-full w-[200%]"
+      >
+        <defs>
+          <linearGradient id={`kv-wave-grad-${side}`} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#6c2bff" stopOpacity="0.15" />
+            <stop offset="45%" stopColor="#6c2bff" />
+            <stop offset="100%" stopColor="#00d9ff" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M-40,20 Q-30,4 -20,20 T0,20 T20,20 T40,20 T60,20 T80,20 T100,20 T120,20 T140,20 T160,20 T180,20 T200,20 T220,20 T240,20 T260,20 T280,20 T300,20 T320,20"
+          fill="none"
+          stroke={`url(#kv-wave-grad-${side})`}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          opacity="0.9"
+        />
+        <path
+          d="M-40,20 Q-30,10 -20,20 T0,20 T20,20 T40,20 T60,20 T80,20 T100,20 T120,20 T140,20 T160,20 T180,20 T200,20 T220,20 T240,20 T260,20 T280,20 T300,20 T320,20"
+          fill="none"
+          stroke={`url(#kv-wave-grad-${side})`}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          opacity="0.4"
+        />
+      </svg>
+      <style>{`
+        .kv-wave-flow {
+          animation: kv-wave-flow 2.4s linear infinite;
+        }
+        @keyframes kv-wave-flow {
+          from { transform: translateX(0); }
+          to { transform: translateX(-25%); }
+        }
+        .kv-orb-breathe {
+          animation: kv-orb-breathe 2.6s ease-in-out infinite;
+        }
+        @keyframes kv-orb-breathe {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.045); }
+        }
+        .kv-ring {
+          animation: kv-ring-pulse 2.4s ease-out infinite;
+        }
+        .kv-ring-delay {
+          animation-delay: 1.2s;
+        }
+        @keyframes kv-ring-pulse {
+          0% { transform: scale(0.85); opacity: 0.7; }
+          70% { opacity: 0.15; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .kv-wave-flow, .kv-orb-breathe, .kv-ring { animation: none; }
+        }
+      `}</style>
     </div>
   );
 }
