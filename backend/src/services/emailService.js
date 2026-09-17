@@ -84,15 +84,32 @@ function otpEmailText(otp, expiryMinutes) {
 
 // Never log `otp` here or let it reach the rejection message - callers only log the
 // outcome (see otpLogger usage in authController.js), not this function's arguments.
+//
+// Returns the subset of nodemailer's SentMessageInfo that's useful for tracing a
+// message in SMTP2GO's own Activity/Reports dashboard (messageId, the relay's raw
+// SMTP response line - which carries SMTP2GO's queue id - and which recipients it
+// accepted/rejected at hand-off time). None of this is secret: `response` is a relay
+// acknowledgement, not a credential, and `accepted`/`rejected` just echo back the
+// recipient address already being logged elsewhere. A 250 OK here only means SMTP2GO
+// queued the message - it is NOT confirmation of inbox delivery, which is why
+// authController logs this alongside the "sent" event rather than treating it as
+// "delivered".
 async function sendOtpEmail(email, otp) {
   const expiryMinutes = 5;
-  await getTransporter().sendMail({
+  const info = await getTransporter().sendMail({
     from: process.env.SMTP_FROM || 'Work24 <no-reply@work24.app>',
     to: email,
     subject: 'Your Work24 verification code',
     html: otpEmailHtml(otp, expiryMinutes),
     text: otpEmailText(otp, expiryMinutes),
   });
+
+  return {
+    messageId: info.messageId,
+    response: info.response,
+    accepted: info.accepted,
+    rejected: info.rejected,
+  };
 }
 
 module.exports = { sendOtpEmail };

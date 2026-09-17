@@ -139,13 +139,22 @@ exports.signup = async (req, res) => {
     }
 
     logOtpEvent('requested', normalizedEmail);
+    let sendInfo;
     try {
-      await sendOtpEmail(normalizedEmail, otp);
+      sendInfo = await sendOtpEmail(normalizedEmail, otp);
     } catch (err) {
-      logOtpEvent('send_failed', normalizedEmail, { error: err.message }, 'error');
+      logOtpEvent('send_failed', normalizedEmail, {
+        error: err.message,
+        code: err.code,
+        responseCode: err.responseCode,
+        response: err.response,
+      }, 'error');
       return res.status(502).json({ error: 'Failed to send verification email. Please try again.' });
     }
-    logOtpEvent('sent', normalizedEmail);
+    // A 250 OK here only means the SMTP relay (SMTP2GO) queued the message - not that
+    // it reached the inbox. messageId/response let a delivery issue be traced against
+    // SMTP2GO's own Activity dashboard.
+    logOtpEvent('sent', normalizedEmail, sendInfo);
 
     await pending.save();
 
@@ -206,13 +215,20 @@ exports.resendSignupOtp = async (req, res) => {
     pending.lastSentAt = new Date(now);
 
     logOtpEvent('requested', normalizedEmail, { resend: true });
+    let sendInfo;
     try {
-      await sendOtpEmail(normalizedEmail, otp);
+      sendInfo = await sendOtpEmail(normalizedEmail, otp);
     } catch (err) {
-      logOtpEvent('send_failed', normalizedEmail, { error: err.message }, 'error');
+      logOtpEvent('send_failed', normalizedEmail, {
+        resend: true,
+        error: err.message,
+        code: err.code,
+        responseCode: err.responseCode,
+        response: err.response,
+      }, 'error');
       return res.status(502).json({ error: 'Failed to send verification email. Please try again.' });
     }
-    logOtpEvent('sent', normalizedEmail, { resend: true });
+    logOtpEvent('sent', normalizedEmail, { resend: true, ...sendInfo });
 
     await pending.save();
 
