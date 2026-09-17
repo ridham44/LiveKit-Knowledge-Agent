@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const PendingSignup = require('../models/PendingSignup');
 const { sendOtpEmail } = require('../services/emailService');
-const { logOtpEvent } = require('../utils/otpLogger');
+const { logOtpEvent, logAuthEvent } = require('../utils/otpLogger');
 const {
   OTP_TTL_MS,
   MAX_RESENDS,
@@ -105,7 +105,7 @@ exports.signup = async (req, res) => {
         // click, reopened tab) resumes that session instead of spamming a new email
         // or spending resend budget on nothing.
         await pending.save();
-        logOtpEvent('requested', normalizedEmail, { reused: true });
+        await logOtpEvent('requested', normalizedEmail, { reused: true });
         return res.status(200).json({
           message: 'A verification code was already accepted by the mail provider for this email. Please check your inbox.',
           ...buildOtpResponse(pending),
@@ -148,12 +148,12 @@ exports.signup = async (req, res) => {
       pending.lastSentAt = new Date(now);
     }
 
-    logOtpEvent('requested', normalizedEmail, sessionExhausted ? { restarted: true } : undefined);
+    await logOtpEvent('requested', normalizedEmail, sessionExhausted ? { restarted: true } : undefined);
     let sendInfo;
     try {
       sendInfo = await sendOtpEmail(normalizedEmail, otp);
     } catch (err) {
-      logOtpEvent('send_failed', normalizedEmail, {
+      await logOtpEvent('send_failed', normalizedEmail, {
         error: err.message,
         httpStatus: err.httpStatus,
         brevoCode: err.brevoCode,
@@ -163,7 +163,7 @@ exports.signup = async (req, res) => {
     // A 201 here only means Brevo accepted the message - not that it reached the
     // inbox. messageId/httpStatus let a delivery issue be traced against Brevo's own
     // Transactional > Logs dashboard.
-    logOtpEvent('sent', normalizedEmail, sendInfo);
+    await logOtpEvent('sent', normalizedEmail, sendInfo);
 
     try {
       await pending.save();
@@ -188,7 +188,7 @@ exports.signup = async (req, res) => {
         winner.lastSentAt = new Date(now);
         await winner.save();
         pending = winner;
-        logOtpEvent('requested', normalizedEmail, { racedDuplicateInsert: true }, 'warn');
+        await logOtpEvent('requested', normalizedEmail, { racedDuplicateInsert: true }, 'warn');
       } else {
         throw err;
       }
@@ -216,7 +216,7 @@ exports.resendSignupOtp = async (req, res) => {
 
     const pending = await PendingSignup.findOne({ email: normalizedEmail });
     if (!pending) {
-      logOtpEvent('resend_failed', normalizedEmail, { reason: 'session_not_found' }, 'warn');
+      await logOtpEvent('resend_failed', normalizedEmail, { reason: 'session_not_found' }, 'warn');
       return res.status(404).json({
         error: 'Signup session not found or expired. Please start signup again.',
         code: 'SESSION_NOT_FOUND',
@@ -227,7 +227,7 @@ exports.resendSignupOtp = async (req, res) => {
     const msSinceLastSent = now - pending.lastSentAt.getTime();
     if (msSinceLastSent < RESEND_COOLDOWN_MS) {
       const retryAfterSeconds = Math.ceil((RESEND_COOLDOWN_MS - msSinceLastSent) / 1000);
-      logOtpEvent('resend_blocked_cooldown', normalizedEmail, { retryAfterSeconds }, 'warn');
+      await logOtpEvent('resend_blocked_cooldown', normalizedEmail, { retryAfterSeconds }, 'warn');
       return res.status(429).json({
         error: `Please wait ${retryAfterSeconds}s before requesting another code.`,
         code: 'RESEND_COOLDOWN',
@@ -236,7 +236,7 @@ exports.resendSignupOtp = async (req, res) => {
     }
 
     if (pending.resendCount >= MAX_RESENDS) {
-      logOtpEvent('resend_limit_reached', normalizedEmail, { resendCount: pending.resendCount }, 'warn');
+      await logOtpEvent('resend_limit_reached', normalizedEmail, { resendCount: pending.resendCount }, 'warn');
       return res.status(429).json({
         error: 'Maximum resend attempts reached. Please restart signup.',
         code: 'RESEND_LIMIT',
@@ -250,12 +250,12 @@ exports.resendSignupOtp = async (req, res) => {
     pending.resendCount += 1;
     pending.lastSentAt = new Date(now);
 
-    logOtpEvent('requested', normalizedEmail, { resend: true });
+    await logOtpEvent('requested', normalizedEmail, { resend: true });
     let sendInfo;
     try {
       sendInfo = await sendOtpEmail(normalizedEmail, otp);
     } catch (err) {
-      logOtpEvent('send_failed', normalizedEmail, {
+      await logOtpEvent('send_failed', normalizedEmail, {
         resend: true,
         error: err.message,
         httpStatus: err.httpStatus,
@@ -263,7 +263,7 @@ exports.resendSignupOtp = async (req, res) => {
       }, 'error');
       return res.status(502).json({ error: 'Failed to send verification email. Please try again.' });
     }
-    logOtpEvent('sent', normalizedEmail, { resend: true, ...sendInfo });
+    await logOtpEvent('sent', normalizedEmail, { resend: true, ...sendInfo });
 
     await pending.save();
 
@@ -290,7 +290,7 @@ exports.verifySignupOtp = async (req, res) => {
 
     const pending = await PendingSignup.findOne({ email: normalizedEmail });
     if (!pending) {
-      logOtpEvent('verify_failed', normalizedEmail, { reason: 'session_not_found' }, 'warn');
+      await logOtpEvent('verify_failed', normalizedEmail, { reason: 'session_not_found' }, 'warn');
       return res.status(404).json({
         error: 'Signup session not found or expired. Please start signup again.',
         code: 'SESSION_NOT_FOUND',
@@ -298,7 +298,7 @@ exports.verifySignupOtp = async (req, res) => {
     }
 
     if (pending.otpAttempts >= MAX_VERIFY_ATTEMPTS) {
-      logOtpEvent('verify_failed', normalizedEmail, { reason: 'locked' }, 'warn');
+      await logOtpEvent('verify_failed', normalizedEmail, { reason: 'locked' }, 'warn');
       return res.status(429).json({
         error: 'Too many incorrect attempts. Please request a new code.',
         code: 'OTP_LOCKED',
@@ -306,7 +306,7 @@ exports.verifySignupOtp = async (req, res) => {
     }
 
     if (pending.otpExpiresAt.getTime() <= Date.now()) {
-      logOtpEvent('expired', normalizedEmail);
+      await logOtpEvent('expired', normalizedEmail);
       return res.status(400).json({
         error: 'Verification code expired. Please request a new code.',
         code: 'OTP_EXPIRED',
@@ -318,7 +318,7 @@ exports.verifySignupOtp = async (req, res) => {
       pending.otpAttempts += 1;
       await pending.save();
       const attemptsRemaining = Math.max(0, MAX_VERIFY_ATTEMPTS - pending.otpAttempts);
-      logOtpEvent('verify_failed', normalizedEmail, { reason: 'invalid_code', attemptsRemaining }, 'warn');
+      await logOtpEvent('verify_failed', normalizedEmail, { reason: 'invalid_code', attemptsRemaining }, 'warn');
       return res.status(400).json({
         error: 'Incorrect verification code.',
         code: 'OTP_INVALID',
@@ -331,7 +331,7 @@ exports.verifySignupOtp = async (req, res) => {
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       await PendingSignup.deleteOne({ _id: pending._id });
-      logOtpEvent('verify_failed', normalizedEmail, { reason: 'already_registered' }, 'warn');
+      await logOtpEvent('verify_failed', normalizedEmail, { reason: 'already_registered' }, 'warn');
       return res.status(400).json({ error: 'Email already registered' });
     }
 
@@ -348,14 +348,14 @@ exports.verifySignupOtp = async (req, res) => {
     } catch (err) {
       if (err.code === 11000) {
         await PendingSignup.deleteOne({ _id: pending._id });
-        logOtpEvent('verify_failed', normalizedEmail, { reason: 'already_registered' }, 'warn');
+        await logOtpEvent('verify_failed', normalizedEmail, { reason: 'already_registered' }, 'warn');
         return res.status(400).json({ error: 'Email already registered' });
       }
       throw err;
     }
 
     await PendingSignup.deleteOne({ _id: pending._id });
-    logOtpEvent('verify_success', normalizedEmail);
+    await logOtpEvent('verify_success', normalizedEmail);
 
     const token = jwt.sign(
       { id: user._id, email: user.email },
@@ -363,7 +363,7 @@ exports.verifySignupOtp = async (req, res) => {
       { expiresIn: JWT_EXPIRE }
     );
 
-    logOtpEvent('signup_completed', normalizedEmail, { userId: user._id.toString() });
+    await logOtpEvent('signup_completed', normalizedEmail, { userId: user._id.toString() });
 
     res.status(201).json({
       token,
@@ -389,12 +389,14 @@ exports.login = async (req, res) => {
     // Find user
     const user = await User.findOne({ email });
     if (!user) {
+      await logAuthEvent('login_failed', email, { reason: 'user_not_found' }, 'warn');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // Check password
     const isValid = await user.comparePassword(password);
     if (!isValid) {
+      await logAuthEvent('login_failed', email, { reason: 'invalid_password', userId: user._id.toString() }, 'warn');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -404,6 +406,8 @@ exports.login = async (req, res) => {
       jwtSecret,
       { expiresIn: JWT_EXPIRE }
     );
+
+    await logAuthEvent('login_success', email, { userId: user._id.toString() });
 
     res.json({
       token,
@@ -427,6 +431,25 @@ exports.getMe = async (req, res) => {
   }
 };
 
-exports.logout = (req, res) => {
+exports.logout = async (req, res) => {
+  // No auth middleware guards this route (logout must still succeed with an
+  // expired/missing token), so identity here is best-effort only: decode the bearer
+  // token if one was sent, but never reject the request over it - the response
+  // contract (always 200, "Logged out") is unchanged either way.
+  let email = null;
+  let userId = null;
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token && process.env.JWT_SECRET) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      email = decoded.email;
+      userId = decoded.id;
+    } catch {
+      // Ignore - an expired/invalid token still logs out successfully, just without
+      // an identity attached to the audit entry.
+    }
+  }
+  await logAuthEvent('logout', email, userId ? { userId } : undefined);
   res.json({ message: 'Logged out' });
 };

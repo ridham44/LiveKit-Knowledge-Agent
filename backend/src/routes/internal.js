@@ -6,5 +6,6 @@ const router = express.Router();
 
 router.post('/voice-chat', internalAuth, internalController.voiceChat);
 router.post('/voice-chat-stream', internalAuth, internalController.voiceChatStream);
+router.get('/audit-logs', internalAuth, internalController.getAuditLogs);
 
 module.exports = router;
