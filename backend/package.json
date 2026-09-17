@@ -25,6 +25,7 @@
     "livekit-server-sdk": "^2.19.0",
     "mongoose": "^9.10.1",
     "multer": "^2.4.0",
+    "nodemailer": "^10.0.10",
     "pdfjs-dist": "^5.4.296",
     "xml2js": "^0.6.2"
   },

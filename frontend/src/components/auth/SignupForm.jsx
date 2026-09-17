@@ -3,6 +3,7 @@ import { AlertCircle, Building2, Check, Loader2, Mail, User } from 'lucide-react
 import { AuthContext } from '../../context/AuthContext';
 import { auth } from '../../services/api';
 import AuthInput from './AuthInput';
+import OtpVerification from './OtpVerification';
 import PasswordInput from './PasswordInput';
 import PasswordStrength, { getPasswordChecks } from './PasswordStrength';
 
@@ -28,6 +29,7 @@ export default function SignupForm({ onSwitchPage }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [otpSession, setOtpSession] = useState(null);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -65,7 +67,12 @@ export default function SignupForm({ onSwitchPage }) {
         gender: form.gender,
         companyName: form.companyName,
       });
-      login(data.user, data.token);
+      setOtpSession({
+        email: data.email,
+        expiresIn: data.otpExpiresInSeconds,
+        cooldown: data.resendCooldownSeconds,
+        resendsRemaining: data.resendsRemaining,
+      });
     } catch (err) {
       setApiError(err.message || 'Something went wrong. Please try again.');
     } finally {
@@ -74,6 +81,19 @@ export default function SignupForm({ onSwitchPage }) {
   };
 
   const confirmMatches = form.confirmPassword && form.confirmPassword === form.password;
+
+  if (otpSession) {
+    return (
+      <OtpVerification
+        email={otpSession.email}
+        initialExpiresIn={otpSession.expiresIn}
+        initialCooldown={otpSession.cooldown}
+        initialResendsRemaining={otpSession.resendsRemaining}
+        onVerified={login}
+        onBack={() => setOtpSession(null)}
+      />
+    );
+  }
 
   return (
     <div>
@@ -185,7 +205,7 @@ export default function SignupForm({ onSwitchPage }) {
           className="brand-gradient w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold shadow-sm transition hover:brightness-95 active:brightness-90 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {loading && <Loader2 size={17} className="animate-spin" />}
-          {loading ? 'Creating account...' : 'Create Account'}
+          {loading ? 'Sending code...' : 'Create Account'}
         </button>
       </form>
 

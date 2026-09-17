@@ -41,16 +41,34 @@ export async function apiCall(endpoint, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(data?.error || `API request failed (${response.status})`);
+    // Carries the parsed error body (code, attemptsRemaining, retryAfterSeconds, ...)
+    // on the Error itself so callers that need more than the message - the OTP screen
+    // in particular - don't have to re-fetch or re-parse anything.
+    const error = new Error(data?.error || `API request failed (${response.status})`);
+    error.code = data?.code;
+    error.data = data;
+    throw error;
   }
 
   return data;
 }
 
 export const auth = {
+  // Step 1 of signup: validates the form and emails a 6-digit OTP. Does NOT create
+  // the account - see verifySignupOtp.
   signup: (formData) => apiCall('/api/auth/signup', {
     method: 'POST',
     body: JSON.stringify(formData),
+  }),
+  resendSignupOtp: (email) => apiCall('/api/auth/signup/resend', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }),
+  // Step 2 of signup: creates the account once the OTP checks out. Returns the same
+  // { token, user } shape as login, so the caller can log the user in immediately.
+  verifySignupOtp: (email, otp) => apiCall('/api/auth/signup/verify', {
+    method: 'POST',
+    body: JSON.stringify({ email, otp }),
   }),
   login: (email, password) => apiCall('/api/auth/login', {
     method: 'POST',

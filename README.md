@@ -159,7 +159,7 @@ npm run dev
 ```
 See [`voice-agent/README.md`](voice-agent/README.md) for details and troubleshooting.
 
-**Prerequisites:** Node.js 20+, a MongoDB database (Atlas or local), and accounts with [OpenRouter](https://openrouter.ai/keys), [LiveKit Cloud](https://cloud.livekit.io), [AssemblyAI](https://www.assemblyai.com/dashboard/signup), and [Deepgram](https://console.deepgram.com/signup).
+**Prerequisites:** Node.js 20+, a MongoDB database (Atlas or local), accounts with [OpenRouter](https://openrouter.ai/keys), [LiveKit Cloud](https://cloud.livekit.io), [AssemblyAI](https://www.assemblyai.com/dashboard/signup), and [Deepgram](https://console.deepgram.com/signup), and an SMTP provider (e.g. SMTP2GO, SendGrid, Postmark, AWS SES) for sending the signup verification email.
 
 ### Environment variables
 
@@ -176,6 +176,7 @@ See [`voice-agent/README.md`](voice-agent/README.md) for details and troubleshoo
 | `MAX_FILE_SIZE` | No | Defaults to 4MB (see [Known limitations](#known-limitations)) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Yes | Same LiveKit Cloud project used by `voice-agent` |
 | `DEEPGRAM_API_KEY` | Yes | Powers the Voice page's text-to-speech |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Yes | Sends the signup email-verification OTP — see `backend/.env.example` |
 | `AGENT_SHARED_SECRET` | Yes | Must match the same value in `voice-agent/.env` |
 | `APP_URL` / `CORS_ORIGINS` | No | Only needed for a custom domain — see `backend/.env.example` |
 
