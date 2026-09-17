@@ -21,6 +21,11 @@
 // cold-start of every other route sharing app.js. pdfjs-dist ships ESM-only, so this
 // is a dynamic import() rather than require().
 async function extractTextFromPDF(buffer) {
+  // Must run before pdfjs-dist is imported - it references `new DOMMatrix()` at
+  // module load time (a top-level constant), not just inside functions this module
+  // calls. See pdfCanvasPolyfills.js for why this is needed on Vercel specifically.
+  require('./pdfCanvasPolyfills').installPdfCanvasPolyfills();
+
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
   const loadingTask = pdfjsLib.getDocument({
