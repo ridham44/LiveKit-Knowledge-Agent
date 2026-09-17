@@ -1,25 +1,20 @@
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 
-// Built once per warm function instance and reused - same rationale as the cached
-// Mongo connection in db.js, avoids paying an SMTP handshake on every request.
-let transporter = null;
+// Brevo's transactional email HTTP API (still under the historical "smtp/email"
+// path even though this is the REST API, not raw SMTP - that's Brevo's own naming,
+// not a leftover from the old SMTP2GO integration).
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-function getTransporter() {
-  if (transporter) return transporter;
-
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
-    throw new Error('SMTP is not configured');
+function getBrevoConfig() {
+  const { BREVO_API_KEY, BREVO_FROM_EMAIL, BREVO_FROM_NAME } = process.env;
+  if (!BREVO_API_KEY || !BREVO_FROM_EMAIL) {
+    throw new Error('Brevo is not configured');
   }
-
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
-
-  return transporter;
+  return {
+    apiKey: BREVO_API_KEY,
+    fromEmail: BREVO_FROM_EMAIL,
+    fromName: BREVO_FROM_NAME || 'Work24',
+  };
 }
 
 function otpEmailHtml(otp, expiryMinutes) {
@@ -82,34 +77,54 @@ function otpEmailText(otp, expiryMinutes) {
   ].join('\n');
 }
 
-// Never log `otp` here or let it reach the rejection message - callers only log the
-// outcome (see otpLogger usage in authController.js), not this function's arguments.
+// Never log `otp`, the request body, or BREVO_API_KEY here - callers only log the
+// safe outcome fields this function returns/throws (see otpLogger usage in
+// authController.js), never this function's arguments or the raw axios error (whose
+// `error.config.headers` would carry the api-key).
 //
-// Returns the subset of nodemailer's SentMessageInfo that's useful for tracing a
-// message in SMTP2GO's own Activity/Reports dashboard (messageId, the relay's raw
-// SMTP response line - which carries SMTP2GO's queue id - and which recipients it
-// accepted/rejected at hand-off time). None of this is secret: `response` is a relay
-// acknowledgement, not a credential, and `accepted`/`rejected` just echo back the
-// recipient address already being logged elsewhere. A 250 OK here only means SMTP2GO
-// queued the message - it is NOT confirmation of inbox delivery, which is why
-// authController logs this alongside the "sent" event rather than treating it as
-// "delivered".
+// A 201 here only means Brevo accepted the message for delivery - it is NOT
+// confirmation of inbox delivery, which is why authController logs this alongside
+// the "sent" event rather than treating it as "delivered".
 async function sendOtpEmail(email, otp) {
   const expiryMinutes = 5;
-  const info = await getTransporter().sendMail({
-    from: process.env.SMTP_FROM || 'Work24 <no-reply@work24.app>',
-    to: email,
-    subject: 'Your Work24 verification code',
-    html: otpEmailHtml(otp, expiryMinutes),
-    text: otpEmailText(otp, expiryMinutes),
-  });
+  const { apiKey, fromEmail, fromName } = getBrevoConfig();
 
-  return {
-    messageId: info.messageId,
-    response: info.response,
-    accepted: info.accepted,
-    rejected: info.rejected,
-  };
+  try {
+    const response = await axios.post(
+      BREVO_API_URL,
+      {
+        sender: { name: fromName, email: fromEmail },
+        to: [{ email }],
+        subject: 'Your Work24 verification code',
+        htmlContent: otpEmailHtml(otp, expiryMinutes),
+        textContent: otpEmailText(otp, expiryMinutes),
+      },
+      {
+        headers: {
+          'api-key': apiKey,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        timeout: 15000,
+      }
+    );
+
+    return {
+      provider: 'brevo',
+      success: true,
+      httpStatus: response.status,
+      messageId: response.data && response.data.messageId,
+    };
+  } catch (err) {
+    // Re-throw only safe, non-secret fields - never err.config (it holds the
+    // api-key header) or the raw axios error object.
+    const safeError = new Error(
+      (err.response && err.response.data && err.response.data.message) || err.message
+    );
+    safeError.httpStatus = err.response ? err.response.status : undefined;
+    safeError.brevoCode = err.response && err.response.data && err.response.data.code;
+    throw safeError;
+  }
 }
 
 module.exports = { sendOtpEmail };

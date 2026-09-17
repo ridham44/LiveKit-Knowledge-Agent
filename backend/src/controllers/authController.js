@@ -155,15 +155,14 @@ exports.signup = async (req, res) => {
     } catch (err) {
       logOtpEvent('send_failed', normalizedEmail, {
         error: err.message,
-        code: err.code,
-        responseCode: err.responseCode,
-        response: err.response,
+        httpStatus: err.httpStatus,
+        brevoCode: err.brevoCode,
       }, 'error');
       return res.status(502).json({ error: 'Failed to send verification email. Please try again.' });
     }
-    // A 250 OK here only means the SMTP relay (SMTP2GO) queued the message - not that
-    // it reached the inbox. messageId/response let a delivery issue be traced against
-    // SMTP2GO's own Activity dashboard.
+    // A 201 here only means Brevo accepted the message - not that it reached the
+    // inbox. messageId/httpStatus let a delivery issue be traced against Brevo's own
+    // Transactional > Logs dashboard.
     logOtpEvent('sent', normalizedEmail, sendInfo);
 
     try {
@@ -259,9 +258,8 @@ exports.resendSignupOtp = async (req, res) => {
       logOtpEvent('send_failed', normalizedEmail, {
         resend: true,
         error: err.message,
-        code: err.code,
-        responseCode: err.responseCode,
-        response: err.response,
+        httpStatus: err.httpStatus,
+        brevoCode: err.brevoCode,
       }, 'error');
       return res.status(502).json({ error: 'Failed to send verification email. Please try again.' });
     }
