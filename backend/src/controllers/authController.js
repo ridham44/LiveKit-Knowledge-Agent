@@ -80,8 +80,16 @@ exports.signup = async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, await bcrypt.genSalt(10));
 
+    // Fetched once and reused for the rest of this request - NEVER discard this
+    // reference in favor of `new PendingSignup(...)` while a document for this email
+    // might still exist in the DB. Doing that (an earlier version of this code set
+    // `pending = null` here to "start a fresh session") makes Mongoose treat the next
+    // save() as an INSERT, which collides with the unique index on `email` and throws
+    // E11000 - the "duplicate pending signup" bug. Below, an exhausted session is
+    // reset via the `sessionExhausted` flag and updated in place instead.
     let pending = await PendingSignup.findOne({ email: normalizedEmail });
     const now = Date.now();
+    let sessionExhausted = false;
 
     if (pending) {
       // Keep the stored form data current regardless of which path below runs - the
@@ -99,7 +107,7 @@ exports.signup = async (req, res) => {
         await pending.save();
         logOtpEvent('requested', normalizedEmail, { reused: true });
         return res.status(200).json({
-          message: 'A verification code was already sent to your email.',
+          message: 'A verification code was already accepted by the mail provider for this email. Please check your inbox.',
           ...buildOtpResponse(pending),
         });
       }
@@ -107,15 +115,17 @@ exports.signup = async (req, res) => {
       if (pending.resendCount >= MAX_RESENDS) {
         // The last code expired AND resends are exhausted - this session is dead.
         // Rather than trapping the user until the 1-hour TTL cleans it up, start a
-        // fresh session with a full resend budget. Only reachable once the OTP has
-        // actually expired, so this can't be used to bypass the resend limit.
-        pending = null;
+        // fresh session with a full resend budget - but reset the SAME document in
+        // place (see comment above `pending` for why). Only reachable once the OTP
+        // has actually expired, so this can't be used to bypass the resend limit.
+        sessionExhausted = true;
       }
     }
 
     const otp = generateOtp();
     const otpHash = await hashOtp(otp);
     const otpExpiresAt = new Date(now + OTP_TTL_MS);
+    const isNewSession = !pending;
 
     if (!pending) {
       pending = new PendingSignup({
@@ -134,11 +144,11 @@ exports.signup = async (req, res) => {
       pending.otpHash = otpHash;
       pending.otpExpiresAt = otpExpiresAt;
       pending.otpAttempts = 0;
-      pending.resendCount += 1;
+      pending.resendCount = sessionExhausted ? 0 : pending.resendCount + 1;
       pending.lastSentAt = new Date(now);
     }
 
-    logOtpEvent('requested', normalizedEmail);
+    logOtpEvent('requested', normalizedEmail, sessionExhausted ? { restarted: true } : undefined);
     let sendInfo;
     try {
       sendInfo = await sendOtpEmail(normalizedEmail, otp);
@@ -156,10 +166,37 @@ exports.signup = async (req, res) => {
     // SMTP2GO's own Activity dashboard.
     logOtpEvent('sent', normalizedEmail, sendInfo);
 
-    await pending.save();
+    try {
+      await pending.save();
+    } catch (err) {
+      if (err.code === 11000 && isNewSession) {
+        // Lost a race with a concurrent signup request for the same email that
+        // inserted its own PendingSignup between our findOne and this save (two
+        // requests both saw "no existing session" and both tried to create one).
+        // Re-fetch the document that won the race and apply this request's OTP to
+        // it instead, so we still end up with exactly one PendingSignup per email
+        // and the code we just emailed is the one that's actually verifiable.
+        const winner = await PendingSignup.findOne({ email: normalizedEmail });
+        if (!winner) throw err; // genuinely unexpected - don't swallow it
+        winner.name = name;
+        winner.passwordHash = passwordHash;
+        winner.gender = gender;
+        winner.companyName = companyName;
+        winner.otpHash = otpHash;
+        winner.otpExpiresAt = otpExpiresAt;
+        winner.otpAttempts = 0;
+        winner.resendCount = Math.min(winner.resendCount + 1, MAX_RESENDS);
+        winner.lastSentAt = new Date(now);
+        await winner.save();
+        pending = winner;
+        logOtpEvent('requested', normalizedEmail, { racedDuplicateInsert: true }, 'warn');
+      } else {
+        throw err;
+      }
+    }
 
     res.status(200).json({
-      message: 'Verification code sent to your email',
+      message: 'OTP email accepted by mail provider',
       ...buildOtpResponse(pending),
     });
   } catch (error) {
@@ -233,7 +270,7 @@ exports.resendSignupOtp = async (req, res) => {
     await pending.save();
 
     res.status(200).json({
-      message: 'Verification code resent',
+      message: 'OTP email accepted by mail provider',
       ...buildOtpResponse(pending),
     });
   } catch (error) {
