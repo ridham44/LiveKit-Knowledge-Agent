@@ -1,9 +1,11 @@
 # KnowledgeVoice API Reference
 
 ## Base URL
-```
-http://localhost:5000
-```
+
+- **Production:** same-origin — the frontend calls `/api/...` directly (no separate host; frontend and API are one Vercel deployment).
+- **Local development:** `http://localhost:5000` (the backend's own dev server; Vite's dev server proxies `/api/*` there, so frontend code still just calls `/api/...`).
+
+All routes below are shown relative to that base, e.g. `/api/auth/signup`.
 
 ## Authentication
 All endpoints except signup/login require JWT token in header:
@@ -134,23 +136,37 @@ curl -X POST http://localhost:5000/api/files/upload \
   -F "file=@document.pdf"
 ```
 
-**Response (201):**
+The request is only answered once processing has fully finished — extraction, chunking, and embedding all happen before the response is sent, so the returned `status` is always the *final* outcome, never a placeholder.
+
+**Response (201) — success:**
 ```json
 {
   "_id": "507f1f77bcf86cd799439011",
   "fileName": "document.pdf",
   "fileType": "pdf",
   "fileSize": 1024000,
-  "status": "pending",
+  "status": "processed",
+  "chunkCount": 12,
+  "errorMessage": null,
   "createdAt": "2026-09-16T12:00:00Z"
 }
 ```
 
-**Status Values:**
-- `pending`: File uploaded, waiting to be processed
-- `processing`: Currently extracting text and generating embeddings
-- `processed`: Complete, ready to query
-- `failed`: Error during processing
+**Response (201) — processing failed** (still `201`; the upload itself succeeded, extraction/embedding did not):
+```json
+{
+  "_id": "507f1f77bcf86cd799439011",
+  "fileName": "document.pdf",
+  "fileType": "pdf",
+  "fileSize": 1024000,
+  "status": "failed",
+  "chunkCount": 0,
+  "errorMessage": "PDF extraction failed: ...",
+  "createdAt": "2026-09-16T12:00:00Z"
+}
+```
+
+Max file size is **4MB** (`MAX_FILE_SIZE`, hard-capped by Vercel's request body limit for the production deployment).
 
 ---
 
@@ -328,6 +344,40 @@ Delete conversation and all associated messages.
 
 ---
 
+### POST /api/chat/stream
+Same as `POST /api/chat`, but the answer is streamed as it's generated instead of returned all at once. Used by the Voice page so speech synthesis can start on the first sentence rather than waiting for the whole reply. Requires authentication.
+
+**Request:** same body as `POST /api/chat`.
+
+**Response:** `Content-Type: application/x-ndjson` — one JSON object per line:
+```
+{"type":"delta","text":"The refund "}
+{"type":"delta","text":"policy allows..."}
+{"type":"done","conversationId":"507f...","messageId":"507f...","usage":{"prompt_tokens":250,"completion_tokens":120,"total_tokens":370}}
+```
+An error mid-stream arrives as `{"type":"error","error":"..."}` instead of an HTTP error status, since headers are already sent by the time the answer starts generating.
+
+---
+
+## Voice / Text-to-Speech Endpoints
+
+### POST /api/tts/speak
+Synthesizes a short chunk of text to speech (Deepgram Aura), so the Deepgram key never reaches the browser. Used by the Voice page to speak the assistant's answer. Requires authentication.
+
+**Request:**
+```json
+{
+  "text": "The refund policy allows returns within 30 days.",
+  "voice": "aura-2-luna-en",
+  "speed": 1.0
+}
+```
+`text` must be 1000 characters or fewer (one spoken sentence at a time). `voice` must be one of the app's allowed voice IDs (see the Voice page's settings panel); `speed` is clamped to 0.7–1.5.
+
+**Response (200):** `Content-Type: audio/ogg` (Opus-encoded) — raw audio bytes, not JSON.
+
+---
+
 ## LiveKit Endpoints
 
 ### POST /api/livekit/token
@@ -374,6 +424,19 @@ process has no user session).
 
 Same response shape as `POST /api/chat`, except messages are saved with `inputType: "voice"`.
 Returns `403` if the secret header is missing or wrong.
+
+---
+
+### POST /api/internal/voice-chat-stream
+Streamed version of the above — same newline-delimited JSON shape as `POST /api/chat/stream`. This is the one the `voice-agent` worker actually calls, so it can start speaking the first sentence of the answer while the rest is still generating. Same `X-Internal-Secret` header requirement.
+
+---
+
+## Health Check
+
+### GET /health
+### GET /api/health
+Unauthenticated, no database round-trip. Returns `{"status":"ok"}` (the `/api/health` variant also includes a `message`). Used for uptime checks.
 
 ---
 
@@ -545,14 +608,12 @@ Not yet implemented. Future enhancement for:
 
 ## Webhooks
 
-Not implemented. Future enhancement for:
-- File processing completion
-- Async job status updates
+Not implemented. Would be a future enhancement for notifying an external system of events (e.g. a document finishing processing) without polling.
 
 ---
 
 ## Version
 
 Current API Version: 1.0
-Last Updated: September 16, 2026
+Last Updated: September 17, 2026
 
