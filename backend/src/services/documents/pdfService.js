@@ -1,36 +1,54 @@
-// Takes the file's raw bytes directly (no disk access) - the caller reads the upload
-// into memory via multer's memoryStorage and never writes it to a filesystem, since
-// Vercel serverless functions have no persistent/writable project disk.
-// pdf-parse v2's API is a class (`new PDFParse({ data }).getText()`), not the callable
-// function v1 had - `PDFParse` must come from a destructured import, not a default one.
+// Talks to pdfjs-dist directly (getDocument + page.getTextContent()) rather than
+// through the `pdf-parse` wrapper package. pdf-parse v2's getText() turned out to
+// also exercise pdfjs-dist's canvas-based page-rendering/glyph-painting code
+// internally (paintChar, Path2D, DOMMatrix.invertSelf/multiplySelf) - not just plain
+// text-layer extraction - which depends on a full 2D canvas implementation via the
+// @napi-rs/canvas native binding. On Vercel that binding doesn't provide a working
+// DOMMatrix/canvas (confirmed in production: uploads failed with "DOMMatrix is not
+// defined"), which is a known class of problem for native canvas/graphics bindings on
+// Lambda-like serverless runtimes (missing shared libraries, or the platform-specific
+// binary not surviving the function's dependency bundling).
 //
-// require()'d lazily, inside the function, rather than at module top-level: pdf-parse
-// pulls in @napi-rs/canvas, a native (non-JS) binary dependency, transitively. Every
-// route in this app is reachable through one shared Express app module (app.js), which
-// requires every route file - including this one - unconditionally at cold start. If a
-// native dependency ever fails to load on Vercel's runtime (a missing native binding,
-// a platform mismatch, a missing system shared library - all real, documented failure
-// modes for native canvas/graphics bindings specifically on Lambda-like runtimes), a
-// top-level require() throws synchronously and takes down the ENTIRE app - every route,
-// including login/signup, which have nothing to do with PDFs. Deferring the require to
-// call time means that failure - if it happens - is scoped to PDF uploads only, caught
-// by processDocument's try/catch (status becomes 'failed' with a clear error message),
-// instead of crashing the whole API.
+// getDocument() + page.getTextContent() is the standard way most Node.js tooling
+// extracts PDF text and does not touch canvas/rendering at all - it walks the
+// content stream's text-showing operators directly. pdfjs-dist still *optionally*
+// tries to load @napi-rs/canvas at import time (for the page-rendering features this
+// module never calls), but gracefully degrades with a warning if that fails, rather
+// than throwing - which is exactly the behavior this needs.
+//
+// require()'d lazily inside the function, not at module top-level, for the same
+// reason as before: this route's dependency should never be able to affect the
+// cold-start of every other route sharing app.js. pdfjs-dist ships ESM-only, so this
+// is a dynamic import() rather than require().
 async function extractTextFromPDF(buffer) {
-  const { PDFParse } = require('pdf-parse');
-  const parser = new PDFParse({ data: buffer });
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(buffer),
+    // No worker thread in a serverless function invocation - run inline.
+    useWorkerFetch: false,
+    isEvalSupported: false,
+  });
+
+  let doc;
   try {
-    const result = await parser.getText();
+    doc = await loadingTask.promise;
+
+    const pageTexts = [];
+    for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+      const page = await doc.getPage(pageNum);
+      const content = await page.getTextContent();
+      pageTexts.push(content.items.map((item) => item.str).join(' '));
+    }
 
     return {
-      text: (result.text || '').trim(),
-      pageCount: result.total,
+      text: pageTexts.join('\n').trim(),
+      pageCount: doc.numPages,
     };
   } catch (error) {
     throw new Error(`PDF extraction failed: ${error.message}`);
   } finally {
-    await parser.destroy();
+    if (doc) await doc.destroy();
   }
 }
 
